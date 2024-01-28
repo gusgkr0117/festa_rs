@@ -1,0 +1,3 @@
+prime = 0x176c11cf13e54b11406fcec87bd4c1480f2bf6b3cf47c54370febd1c756e54f72c1501712922baf5993402979d50dd13d09a841fed4773cfdb168f19a73e323f656921d7dcd797059b7b9ac3245c4d7be6b343ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+Fq = GF(prime)
+E_start = EllipticCurve(Fq, [0, 6, 0, 1, 0])
