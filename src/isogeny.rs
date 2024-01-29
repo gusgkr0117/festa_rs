@@ -10,6 +10,8 @@
 macro_rules! define_isogeny_structure {
     () => {
         /// Computation of isogenies between Kummer lines using x-only formula by Costello-Hisil-Renes
+        /// This is used to compute only short prime degree isogenies
+        /// To compute the composite degree isogeny, use KummerLineIsogenyChain
         pub struct KummerLineIsogeny {
             domain: Curve,
             codomain: Option<Curve>,
@@ -21,11 +23,11 @@ macro_rules! define_isogeny_structure {
         impl KummerLineIsogeny {
             /// Given domain, kernel and degree, compute the corresponding codomain curve
             /// and Edwards multiples
-            pub fn new(domain: Curve, kernel: Point, degree: usize) -> Self {
+            pub fn new(domain: &Curve, kernel: &Point, degree: usize) -> Self {
                 KummerLineIsogeny {
-                    domain,
+                    domain: *domain,
                     codomain: None,
-                    kernel,
+                    kernel: *kernel,
                     degree,
                     edwards_multiples: vec![],
                 }
@@ -96,6 +98,24 @@ macro_rules! define_isogeny_structure {
                 }
 
                 PointX::new_xz(&x_new, &z_new)
+            }
+        }
+
+        pub struct KummerLineIsogenyChain {
+            domain : Curve,
+            codomain : Option<Curve>,
+            kernel : Point,
+            degree : Vec<(u32, u32)>,
+        }
+
+        impl KummerLineIsogenyChain {
+            pub fn new(domain: &Curve, kernel: &Point, degree: &Vec<(u32, u32)>) -> Self {
+                KummerLineIsogenyChain {
+                    domain: *domain,
+                    codomain: None,
+                    kernel: *kernel,
+                    degree: *degree,
+                }
             }
         }
     };
