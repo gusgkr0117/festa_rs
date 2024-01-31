@@ -5,6 +5,7 @@ pub mod festa;
 pub mod fields;
 pub mod finitefield;
 pub mod isogeny;
+pub mod pairing;
 pub mod theta;
 
 pub mod ecFESTA {
