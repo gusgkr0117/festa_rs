@@ -58,11 +58,14 @@ def PrintArray(array, is_long=False):
 
 
 prime = Array2Num(p_array, 8)
-print("P :", hex(prime))
-print("d1 :", hex(d1))
-print("d2 :", hex(d2))
-print("dA1 :", hex(dA1))
-print("dA2 :", hex(dA2))
+
+print("32bit P array :", PrintArray(Num2Array(prime, 4)))
+
+# print("P :", hex(prime))
+# print("d1 :", hex(d1))
+# print("d2 :", hex(d2))
+# print("dA1 :", hex(dA1))
+# print("dA2 :", hex(dA2))
 
 # print("const Px : Fq = Fq::new(%s);" %
 #       (PrintArray(Num2Array(Px, 8, 21), True)))
