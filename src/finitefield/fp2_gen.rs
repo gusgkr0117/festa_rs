@@ -593,6 +593,14 @@ macro_rules! define_fp2_core {
             }
 
             /// Return this value to the power e (as a new element). Exponent e
+            /// is BigUint type
+            pub fn pow_big(self, e: &BigUint) -> Self {
+                let mut x = self;
+                x.set_pow(&e.to_bytes_le(), e.bits() as usize);
+                x
+            }
+
+            /// Return this value to the power e (as a new element). Exponent e
             /// is encoded in unsigned little-endian convention over exactly
             /// ebitlen bits, and starting at the bit offset eoff.
             pub fn pow_ext(self, e: &[u8], eoff: usize, ebitlen: usize) -> Self {
