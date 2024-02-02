@@ -49,5 +49,4 @@ pub fn keygen() {
 
     // Compute the kernel of order dA1
     let da1_kernel = E0.mul_big(&basis_QA, &BigUint::from_slice(&DA2));
-    let da1_phi = KummerLineIsogeny::new(&E0, &da1_kernel, degree);
 }

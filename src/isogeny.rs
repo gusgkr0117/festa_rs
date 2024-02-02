@@ -33,6 +33,11 @@ macro_rules! define_isogeny_structure {
                 }
             }
 
+            /// Output its codomain curve
+            pub fn get_codomain(&self) -> Curve {
+                self.codomain.unwrap()
+            }
+
             /// Computes the multiples that are used in both codomain computation and
             /// isogeny evaluation. We compute them once and reuse them for every evaluation.
             fn precompute_edwards_multiples(&mut self, d: usize) {
@@ -85,8 +90,8 @@ macro_rules! define_isogeny_structure {
 
             /// Evalute the isogeny using Costello-Hisil formula
             /// for evaluating an odd degree isogeny on the Kummer line point P
-            pub fn evaluate_isogeny(self, P: PointX) -> PointX {
-                let (xp, zp) = P.get_xz();
+            pub fn evaluate_isogeny(&self, P: &Point) -> Point {
+                let (xp, zp) = P.to_xz();
                 let (p_sum, p_diff) = (xp + zp, xp - zp);
 
                 let (mut x_new, mut z_new) = (Fq::ONE, Fq::ONE);
@@ -97,26 +102,80 @@ macro_rules! define_isogeny_structure {
                     z_new *= diff_ez - sum_ey;
                 }
 
-                PointX::new_xz(&x_new, &z_new)
+                self.codomain.unwrap().complete_pointX(&PointX::new_xz(&x_new, &z_new)).0
             }
         }
 
-        pub struct KummerLineIsogenyChain {
-            domain : Curve,
-            codomain : Option<Curve>,
-            kernel : Point,
-            degree : Vec<(u32, u32)>,
+        /// Given a list of isogenies, evaluates the point for each isogeny in the list
+        pub fn evaluate_isogeny_chain(P: &Point, isog_chain : &Vec<KummerLineIsogeny>) -> (Option<Curve>, Point) {
+            if isog_chain.is_empty() {
+                return (None, *P);
+            }
+
+            let mut Q = P.clone();
+            for isog in isog_chain.iter() {
+                Q = isog.evaluate_isogeny(&Q);
+            }
+            (Some(isog_chain.last().unwrap().get_codomain()), Q)
         }
 
-        impl KummerLineIsogenyChain {
-            pub fn new(domain: &Curve, kernel: &Point, degree: &Vec<(u32, u32)>) -> Self {
-                KummerLineIsogenyChain {
-                    domain: *domain,
-                    codomain: None,
-                    kernel: *kernel,
-                    degree: *degree,
+
+        /// Computes a composite degree isogeny
+        /// Given a kernel point P of degree l1^e1 * ... * lt^et
+        /// compute the chain of Kummer isogenies
+        pub fn factored_kummer_isogeny(domain : &Curve, kernel : &Point, order : &[(u32, u32)]) -> Vec<KummerLineIsogeny> {
+            /// Compute chain of isogenies quotienting out a point P of order l^e
+            pub fn sparse_isogeny_prime_power(start_curve: &Curve, P : &Point, l : usize, e : usize) -> Vec<KummerLineIsogeny> {
+                /// Compute a chain of isogenies recursively
+                pub fn recursive_sparse_isogeny(E: &Curve, Q : &Point, l : usize, k : usize) -> Vec<KummerLineIsogeny> {
+                    use std::cmp::{max, min};
+                    if k == 1 {
+                        return vec![KummerLineIsogeny::new(E, Q, k)];
+                    }
+
+                    let mut k1 = (k * 8 + 5) / 10;
+                    k1 = max(1, min(k - 1, k1));
+                    
+                    // Q1 <- l^k * Q
+                    let mut Q1 = Q.clone();
+                    for _ in 0..k1 {
+                        Q1 = E.mul_small(&Q1, l as u64);
+                    }
+
+                    let mut L = recursive_sparse_isogeny(E, &Q1, l, k - k1);
+                    let (coE, Q2) = evaluate_isogeny_chain(Q, &L);
+                    let mut R = recursive_sparse_isogeny(&coE.unwrap(), &Q2, l, k1);
+
+                    L.append(&mut R);
+                    L
                 }
+
+                recursive_sparse_isogeny(start_curve, P, l, e)
             }
+
+            let mut P = kernel.clone();
+            let mut curve : Option<Curve>;
+            let mut phi_list = Vec::new();
+
+            for (l, e) in order.iter() {
+                (curve, P) = evaluate_isogeny_chain(&P, &phi_list);
+                curve = match curve {
+                    Some(x) => Some(x), 
+                    None => Some(domain.clone()),
+                };
+                let mut Q = P.clone();
+                for (l1, e1) in order.iter() {
+                    if l != l1 {
+                        for _ in 0..*e1 {
+                            Q = curve.unwrap().mul_small(&Q, *l1 as u64);
+                        }
+                    }
+                }
+
+                let mut psi_list = sparse_isogeny_prime_power(&curve.unwrap(), &Q, *l as usize, *e as usize);
+                phi_list.append(&mut psi_list);
+            }
+            phi_list
         }
     };
 }
