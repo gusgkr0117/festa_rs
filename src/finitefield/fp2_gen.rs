@@ -593,6 +593,15 @@ macro_rules! define_fp2_core {
             }
 
             /// Return this value to the power e (as a new element). Exponent e
+            /// is u32 primitive type
+            pub fn pow_small(self, e: u32) -> Self {
+                let ebitlen = 32 - e.leading_zeros();
+                let mut x = self;
+                x.set_pow(&e.to_le_bytes(), ebitlen as usize);
+                x
+            }
+
+            /// Return this value to the power e (as a new element). Exponent e
             /// is BigUint type
             pub fn pow_big(self, e: &BigUint) -> Self {
                 let mut x = self;
