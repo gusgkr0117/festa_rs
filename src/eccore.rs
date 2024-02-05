@@ -210,6 +210,11 @@ macro_rules! define_ec_core {
                 }
             }
 
+            /// Get the j-invariant of the curve
+            pub fn j_invariant(&self) -> Fq {
+                Fq::TWO.pow_small(8) * (self.A.square() - Fq::THREE).pow_small(3) / (self.A.square() - Fq::FOUR)
+            }
+
             /// Get the Montgomery constant of the curve
             pub fn get_constant(&self) -> Fq {
                 self.A
