@@ -397,10 +397,16 @@ pub mod FpFESTAExt {
         0x76F4A401, 0x5FB7F347, 0x9A503BB9, 0x2EC47996, 0x6E83E49F, 0xE7CC1C9D, 0xEC0B3EF0,
         0xA85D5DC4, 0x00012BF3,
     ];
+    pub const DA_FACTORED: [(u32, u32); 11] = [(59, 2), (3023, 2), (3359, 2), (4409, 2), (5039, 2), (6299, 2), (6719, 2), (9181, 2), (19531, 2), (22679, 2), (41161, 2)];
+
     pub const DA1: [u32; 3] = [0x92CE3979, 0xCB60C53C, 0x01B2BF4B];
+    pub const DA1_FACTORED: [(u32, u32);4] = [(59, 1), (6299, 1), (6719, 1), (9181, 1)];
     pub const DA2: [u32; 6] = [
         0x71F8A4C9, 0x5E8DBA36, 0x32DE49A5, 0x7AEF9314, 0x016200DD, 0x00B0A040,
     ];
+    pub const DA2_FACTORED: [(u32, u32);7] = [(3023, 1), (3359, 1), (4409, 1), (5039, 1), (19531, 1), (22679, 1), (41161, 1)];
+
+    pub const L_POWER : u32 = 632;
 
     /// order of the torsion basis
     pub const BASIS_ORDER: [u32; 41] = [
