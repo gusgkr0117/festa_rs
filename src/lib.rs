@@ -7,6 +7,7 @@ pub mod finitefield;
 pub mod isogeny;
 pub mod pairing;
 pub mod theta;
+pub mod supersingular;
 
 pub mod ecFESTA {
     pub type Fq = crate::fields::FpFESTAExt::Fp2;
