@@ -212,7 +212,8 @@ macro_rules! define_ec_core {
 
             /// Get the j-invariant of the curve
             pub fn j_invariant(&self) -> Fq {
-                Fq::TWO.pow_small(8) * (self.A.square() - Fq::THREE).pow_small(3) / (self.A.square() - Fq::FOUR)
+                Fq::TWO.pow_small(8) * (self.A.square() - Fq::THREE).pow_small(3)
+                    / (self.A.square() - Fq::FOUR)
             }
 
             /// Get the Montgomery constant of the curve
@@ -701,6 +702,12 @@ macro_rules! define_ec_core {
                 P
             }
 
+            /// Output the canonical point iterator of the curve
+            pub fn iter(&self) -> CurveIter {
+                let iter = CurveIter::new(self.A);
+                iter
+            }
+
             /// Complete an X-only point into a full point;
             /// (an error is returned if there is no matching Y coordinate).
             /// On error, P3 is set to the point-at-infinity.
@@ -730,6 +737,41 @@ macro_rules! define_ec_core {
         impl fmt::Display for Curve {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 write!(f, "Montgomery Curve with coefficient: {}", self.A)
+            }
+        }
+
+        /// Canonically iterating the points on the curve
+        pub struct CurveIter {
+            A: Fq,
+            x: Fq,
+        }
+
+        impl CurveIter {
+            pub fn new(A: Fq) -> Self {
+                CurveIter {
+                    A,
+                    x: Fq::ONE + Fq::ZETA,
+                }
+            }
+        }
+
+        impl Iterator for CurveIter {
+            type Item = Point;
+            fn next(&mut self) -> Option<Point> {
+                let mut P = Point::INFINITY;
+                P.Z = Fq::ONE;
+                P.X = self.x;
+                for _ in 0..1000 {
+                    P.Y = &(&(&(&P.X + &self.A) * &P.X) * &P.X) + &P.X;
+                    if P.Y.legendre() >= 0 {
+                        P.Y.set_sqrt();
+                        self.x = P.X + Fq::ONE;
+                        return Some(P);
+                    }
+                    P.X += Fq::ONE;
+                }
+
+                None
             }
         }
 
