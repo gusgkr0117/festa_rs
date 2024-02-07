@@ -6,7 +6,7 @@ use crate::{
 };
 use num_bigint::BigUint;
 
-/// Given the factored order D as an input, check if the group element has D
+/// Given the factored order D as an input, check if the group element has an order D
 pub fn has_factored_order(v: Fq, factored_order: &[(u32, u32)]) -> bool {
     let mut D_top = BigUint::from(1u32);
     let mut pis = Vec::new();
@@ -17,7 +17,7 @@ pub fn has_factored_order(v: Fq, factored_order: &[(u32, u32)]) -> bool {
     }
 
     let G_top = v.pow_big(&D_top);
-    if G_top.iszero() != 0 {
+    if G_top.equals(&Fq::ONE) != 0 {
         return false;
     }
 
@@ -57,11 +57,9 @@ pub fn has_factored_order(v: Fq, factored_order: &[(u32, u32)]) -> bool {
     G_list[0] = G_top;
     if pis.len() > 1 {
         batch_cofactor_mul(&mut G_list, &pis, 0, pis.len());
-        let mut sum = true;
-        for element in G_list.iter().map(|x| x.iszero() != 0).into_iter() {
-            sum &= !element;
-        }
-        return sum;
+        return G_list
+            .iter()
+            .fold(true, |s, x| s & (x.equals(&Fq::ONE) == 0));
     }
 
     true
@@ -75,25 +73,25 @@ pub fn clear_cofactor(E: &Curve, P: &Point, k: &BigUint, even_power: usize) -> P
     E.mul_big(&Q, &x)
 }
 
-/// Generate a random D-torsion point
+/// Generate a random D-torsion point canonically
 pub fn generate_point_order_factored_D(E: &Curve, D: &BigUint, even_power: usize) -> Point {
-    let mut rng = rand::thread_rng();
     let cofactor = BigUint::from_slice(&BASIS_ORDER) / D;
 
-    loop {
-        let mut random_point = E.rand_point(&mut rng);
-        random_point = clear_cofactor(E, &random_point, &cofactor, even_power);
+    for random_point in E.iter() {
+        let torsion_point = clear_cofactor(E, &random_point, &cofactor, even_power);
 
-        if random_point.isinfinity() != 0 {
+        if torsion_point.isinfinity() != 0 {
             continue;
         }
 
-        if E.mul_big(&random_point, D).isinfinity() == 0 {
+        if E.mul_big(&torsion_point, D).isinfinity() == 0 {
             continue;
         }
 
-        return random_point;
+        return torsion_point;
     }
+
+    Point::INFINITY
 }
 
 /// Generate a basis of E(Fq)[D] of supersingular curve
@@ -102,10 +100,17 @@ pub fn torsion_basis(E: &Curve, factored_D: &[(u32, u32)], even_power: usize) ->
     for (l, e) in factored_D.iter() {
         D *= BigUint::from(*l).pow(*e);
     }
+    let cofactor = BigUint::from_slice(&BASIS_ORDER) / &D;
 
     let P = generate_point_order_factored_D(E, &D, even_power);
-    loop {
-        let Q = generate_point_order_factored_D(E, &D, even_power);
+    for random_point in E.iter() {
+        let Q = clear_cofactor(E, &random_point, &cofactor, even_power);
+        if Q.isinfinity() != 0 {
+            continue;
+        }
+        if E.mul_big(&Q, &D).isinfinity() == 0 {
+            continue;
+        }
         let ePQ = tate_pairing(E, &P, &Q, &D);
         //check if the order of ePQ is equal to D
         if !has_factored_order(ePQ, factored_D) {
@@ -113,6 +118,8 @@ pub fn torsion_basis(E: &Curve, factored_D: &[(u32, u32)], even_power: usize) ->
         }
         return (P, Q);
     }
+
+    (Point::INFINITY, Point::INFINITY)
 }
 
 /// Generate a random isogeny
@@ -164,5 +171,16 @@ mod tests {
         let (P, Q) = torsion_basis(&test_curve, &degree, L_POWER as usize);
         println!("P : {}", P);
         println!("Q : {}", Q);
+    }
+
+    #[test]
+    fn iterate_curve() {
+        let test_curve = Curve::new(&(Fq::TWO + Fq::FOUR));
+        for (i, point) in test_curve.iter().enumerate() {
+            println!("point : {}", point);
+            if i > 5 {
+                break;
+            }
+        }
     }
 }
