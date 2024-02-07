@@ -1,13 +1,14 @@
 #![allow(non_snake_case)]
 
+pub mod discrete_log;
 pub mod eccore;
 pub mod festa;
 pub mod fields;
 pub mod finitefield;
 pub mod isogeny;
 pub mod pairing;
-pub mod theta;
 pub mod supersingular;
+pub mod theta;
 
 pub mod ecFESTA {
     pub type Fq = crate::fields::FpFESTAExt::Fp2;
