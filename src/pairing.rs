@@ -40,7 +40,11 @@ pub fn tate_pairing(E: &Curve, P: &Point, Q: &Point, order: &BigUint) -> Fq {
         }
     }
 
-    debug_assert!(V.isinfinity() != 0, "V is not identity");
+    debug_assert!(V.isinfinity() != 0, "pairing point is invalid");
+
+    if f.iszero() != 0 {
+        return Fq::ONE;
+    }
 
     let q = BigUint::from_slice(&BIGUINT_MODULUS);
     let exp = (&q * &q - BigUint::from(1u32)) / order;
