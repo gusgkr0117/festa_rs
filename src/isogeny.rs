@@ -193,7 +193,7 @@ macro_rules! define_isogeny_structure {
                     }
                 }
                 debug_assert!(Q.isinfinity() == 0, "The kernel point must be nonzero");
-                debug_assert!(curve.mul_big(&Q, &BigUint::from(*l).pow(*e)).isinfinity() != 0, "The order of the point is not correct");
+                debug_assert!(curve.mul_big(&Q, &BigUint::from(*l).pow(*e)).isinfinity() != 0, "The order of the point is not correct, (l,e) = ({}, {}), Point: {}", l, e, Q);
 
                 let mut psi_list = sparse_isogeny_prime_power(&curve, &Q, *l as usize, *e as usize);
                 (curve, P) = evaluate_isogeny_chain(&curve, &P, &psi_list);
@@ -229,8 +229,11 @@ mod tests {
         let randQ = start_curve.rand_point(&mut rng);
         let basis_order = BigUint::from_slice(&BASIS_ORDER) * BigUint::from(2u32);
 
-        let factored_order : [(u32, u32);3] = [(3023, 1), (3359, 1), (4409, 1)];
-        let new_order = BigUint::from(3023u32) * BigUint::from(3359u32) * BigUint::from(4409u32);
+        let factored_order : [(u32, u32);3] = [(2729, 2), (3359, 1), (4409, 1)];
+        let new_order = BigUint::from(2729u32) * BigUint::from(2729u32) * BigUint::from(3359u32) * BigUint::from(4409u32);
+
+        assert!((&basis_order % &new_order) == BigUint::from(0u32), "The new order is wrong");
+
         let cofactor = &basis_order / &new_order;
 
         let kernP = start_curve.mul_big(&randP, &cofactor);
