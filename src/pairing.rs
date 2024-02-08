@@ -9,6 +9,11 @@ use crate::{
 /// and output g(R)
 fn eval_line(E: &Curve, P: &Point, Q: &Point, R: &Point) -> Fq {
     let result;
+    // When P or Q is the point at infinity i.e. D(g) = 0,
+    // the dividing by this evaluation of the line must be ignored
+    if P.isinfinity() != 0 || Q.isinfinity() != 0 {
+        return Fq::ONE;
+    }
     let (Px, Py) = P.to_xy();
     let (Qx, Qy) = Q.to_xy();
     let (Rx, Ry) = R.to_xy();
@@ -27,6 +32,7 @@ fn eval_line(E: &Curve, P: &Point, Q: &Point, R: &Point) -> Fq {
 
 /// Evaluate Tate pairing using Miller's algorithm
 /// If two points P and Q are linearly dependent, it outputs zero.
+/// Reference : [crypto.stanford.edu](https://crypto.stanford.edu/pbc/notes/ep/miller.html)
 pub fn tate_pairing(E: &Curve, P: &Point, Q: &Point, order: &BigUint) -> Fq {
     let mut f = Fq::ONE;
     let mut V = P.clone();
@@ -47,45 +53,50 @@ pub fn tate_pairing(E: &Curve, P: &Point, Q: &Point, order: &BigUint) -> Fq {
     }
 
     let q = BigUint::from_slice(&BIGUINT_MODULUS);
+    debug_assert!(
+        (&q * &q - BigUint::from(1u32)) % order == BigUint::from(0u32),
+        "The modulus is wrong"
+    );
     let exp = (&q * &q - BigUint::from(1u32)) / order;
     f.pow_big(&exp)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::fields::FpFESTAExt::BASIS_ORDER;
+    use crate::{
+        fields::FpFESTAExt::{BASIS_ORDER, L_POWER},
+        supersingular::torsion_basis,
+    };
 
     use super::*;
     use num_bigint::BigUint;
-    use rand::prelude::*;
-    use rand_chacha::ChaCha20Rng;
     #[test]
     fn compute_pairing() {
         let test_curve = Curve::new(&(Fq::TWO + Fq::FOUR));
-        let mut rng = ChaCha20Rng::from_entropy();
-        let mut test_P = test_curve.rand_point(&mut rng);
-        let mut test_Q = test_curve.rand_point(&mut rng);
         let basis_order = BigUint::from_slice(&BASIS_ORDER) * BigUint::from(2u32);
-        let new_point = test_curve.mul_big(&test_P, &basis_order);
-
-        assert!(new_point.isinfinity() != 0);
 
         // sample order for test
         let new_order = BigUint::from(41161u32);
 
         assert!((&basis_order % &new_order) == BigUint::from(0u32));
 
-        let cofactor = &basis_order / &new_order;
-        test_P = test_curve.mul_big(&test_P, &cofactor);
-        test_Q = test_curve.mul_big(&test_Q, &cofactor);
-
-        assert!(test_curve.mul_big(&test_P, &new_order).isinfinity() != 0);
-        assert!(test_curve.mul_big(&test_Q, &new_order).isinfinity() != 0);
+        let (test_P, test_Q) = torsion_basis(&test_curve, &[(41161u32, 1u32)], L_POWER as usize);
+        let x = 19u32;
 
         let pairing_result = tate_pairing(&test_curve, &test_P, &test_Q, &new_order);
+        let pairing_result2 = tate_pairing(
+            &test_curve,
+            &test_P,
+            &test_curve.mul_small(&test_Q, x as u64),
+            &new_order,
+        );
 
-        assert!(pairing_result.pow_u64(41161u64, 16).equals(&Fq::ONE) != 0);
+        println!("e(P, Q)^x : {}", pairing_result.pow_small(x));
+        println!("e(P, nQ) : {}", pairing_result2);
 
-        println!("e(P, Q) : {}", pairing_result);
+        assert!(pairing_result.pow_small(41161u32).equals(&Fq::ONE) != 0);
+        assert!(pairing_result2.pow_small(41161u32).equals(&Fq::ONE) != 0);
+
+        assert!(pairing_result.pow_small(x).equals(&pairing_result2) != 0);
     }
 }
