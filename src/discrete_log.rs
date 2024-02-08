@@ -1,18 +1,44 @@
 /// Implementation of solving DLP in the finite field Fq
 /// Use Baby-Step Giant-Step algorithm and Pohlig-Hellman algorithm
 use crate::ecFESTA::Fq;
-use num_bigint::BigUint;
+use num_bigint::{BigInt, BigUint, Sign, ToBigInt};
 
 /// Computing the extended GCD algorithm of given two BigUint type numbers
 /// compute r such that a*r - b*y = d = gcd(a,b)
 pub fn xgcd_big(a: &BigUint, b: &BigUint) -> BigUint {
-    todo!("implementation of extended GCD algorithm for BigUints");
-    BigUint::from(1u32)
+    let (mut s1, mut t1) = (BigInt::from(1u32), BigInt::from(0u32));
+    let (mut s2, mut t2) = (BigInt::from(0u32), BigInt::from(1u32));
+    let (mut m, mut n) = (a.to_bigint().unwrap(), b.to_bigint().unwrap());
+
+    if m < n {
+        (m, n) = (n, m);
+        ((s1, t1), (s2, t2)) = ((s2, t2), (s1, t1));
+    }
+
+    while n != BigInt::from(0) {
+        let q = &m / &n;
+        let r = &m - &q * &n;
+        (m, n) = (n, r);
+        ((s1, t1), (s2, t2)) = ((s2.clone(), t2.clone()), (s1 - &q * s2, t1 - &q * t2));
+    }
+
+    s1 = s1 % b.to_bigint().unwrap();
+
+    if s1.sign() == Sign::Minus {
+        s1 += b.to_bigint().unwrap();
+    }
+
+    s1.to_biguint().unwrap()
 }
 
 /// Computing Chinese Remainder Theorem(CRT) for given BigUint type numbers as inputs
 pub fn compute_crt(remainder_list: &Vec<BigUint>, modulus_factor: &[(u32, u32)]) -> BigUint {
     let mut result = BigUint::from(0u32);
+    let modulus = modulus_factor
+        .iter()
+        .fold(BigUint::from(1u32), |s, (l, e)| {
+            s * BigUint::from(*l).pow(*e)
+        });
 
     for (i, (l, e)) in modulus_factor.iter().enumerate() {
         let factor = BigUint::from(*l).pow(*e);
@@ -23,7 +49,7 @@ pub fn compute_crt(remainder_list: &Vec<BigUint>, modulus_factor: &[(u32, u32)])
             }
         }
         let cofactor_inv = xgcd_big(&cofactor, &factor);
-        result += &remainder_list[i] * cofactor_inv * cofactor;
+        result = (result + &remainder_list[i] * cofactor_inv * cofactor) % &modulus;
     }
     result
 }
@@ -54,9 +80,9 @@ pub fn sqrt_floor(n: u32) -> u32 {
     f
 }
 
-/// Baby-step and Giant-step algorithm for a small prime order
+/// Baby-Step Giant-Step(BSGS) algorithm for a small prime order
 pub fn bsgs(beta: &Fq, alpha: &Fq, order: u32) -> u32 {
-    let m = sqrt_floor(order);
+    let m = sqrt_floor(order) + 1;
     let mut alpha_list = Vec::new();
     let mut gamma = Fq::ONE;
     for i in 0..m {
@@ -64,11 +90,11 @@ pub fn bsgs(beta: &Fq, alpha: &Fq, order: u32) -> u32 {
         gamma *= alpha;
     }
 
-    let alpha_m_inv = (gamma * alpha).invert();
+    let alpha_m_inv = gamma.invert();
     let mut target = *beta;
     for i in 0..m {
         if let Some((j, _)) = alpha_list.iter().find(|(_, v)| v.equals(&target) != 0) {
-            return i * m + j;
+            return (i * m + j) % order;
         }
 
         target *= alpha_m_inv;
@@ -79,7 +105,7 @@ pub fn bsgs(beta: &Fq, alpha: &Fq, order: u32) -> u32 {
 /// Solving a DLP problem using Pohlig-Hellman algorithm
 /// where the order of the group is a power of a prime : l^e
 pub fn ph_dlp_power(beta: &Fq, alpha: &Fq, l: u32, e: u32) -> BigUint {
-    let mut h = beta.pow_small(l);
+    let mut h;
     let mut x = BigUint::from(0u32);
     let mut gamma = *alpha;
     let mut l_i = BigUint::from(1u32);
@@ -87,12 +113,24 @@ pub fn ph_dlp_power(beta: &Fq, alpha: &Fq, l: u32, e: u32) -> BigUint {
         gamma = gamma.pow_small(l);
     }
 
+    debug_assert!(
+        gamma.equals(&Fq::ONE) == 0 && gamma.pow_small(l).equals(&Fq::ONE) != 0,
+        "The order of gamma is wrong"
+    );
+
     for i in 0..e {
-        h = *beta;
+        let g_x_inv = alpha.pow_big(&x).invert();
+        h = *beta * g_x_inv;
         for _ in 0..e - 1 - i {
             h = h.pow_small(l);
         }
+        debug_assert!(
+            h.pow_small(l).equals(&Fq::ONE) != 0,
+            "The order of h is wrong"
+        );
+
         let d = bsgs(&h, &gamma, l);
+        debug_assert!(gamma.pow_small(d).equals(&h) != 0, "bsgs is wrong");
         x = x + &l_i * d;
         l_i *= l;
     }
@@ -125,7 +163,50 @@ pub fn ph_dlp(beta: &Fq, alpha: &Fq, factored_order: &[(u32, u32)]) -> BigUint {
 
 #[cfg(test)]
 mod tests {
+    use crate::{
+        ecFESTA::Curve,
+        fields::FpFESTAExt::{D1, D1_FACTORED, L_POWER},
+        pairing::tate_pairing,
+        supersingular::torsion_basis,
+    };
+
     use super::*;
     #[test]
-    fn compute_dlp_using_pairing() {}
+    fn compute_dlp_using_pairing() {
+        let test_curve = Curve::new(&(Fq::TWO + Fq::FOUR));
+        let (P, Q) = torsion_basis(&test_curve, &D1_FACTORED, L_POWER as usize);
+        let d1 = BigUint::from_slice(&D1);
+        let ePQ = tate_pairing(&test_curve, &P, &Q, &d1);
+        let ePnQ = tate_pairing(&test_curve, &P, &test_curve.mul_small(&Q, 19u64), &d1);
+
+        println!("ePQ : {}", ePQ.pow_small(19u32));
+        println!("ePnQ : {}", ePnQ);
+
+        let dlp = ph_dlp(&ePnQ, &ePQ, &D1_FACTORED);
+        println!("dlp result : {}", dlp);
+    }
+
+    #[test]
+    fn compute_xgcd() {
+        let n = BigUint::from(1241u32);
+        let m = BigUint::from(512u32);
+        let r = xgcd_big(&m, &n);
+        println!("r : {}", r);
+        println!("(m * r) % n : {}", (m * r) % n);
+    }
+
+    #[test]
+    fn test_crt() {
+        let modulus_list: [(u32, u32); 3] = [(3, 2), (5, 1), (7, 3)];
+        let remainder_list: Vec<BigUint> = vec![
+            BigUint::from(5u32),
+            BigUint::from(3u32),
+            BigUint::from(23u32),
+        ];
+        let result = compute_crt(&remainder_list, &modulus_list);
+        println!("result : {}", result);
+        println!("result % 3^2 = {}", &result % BigUint::from(9u32));
+        println!("result % 5^1 = {}", &result % BigUint::from(5u32));
+        println!("result % 7^3 = {}", &result % BigUint::from(7u32).pow(3));
+    }
 }
