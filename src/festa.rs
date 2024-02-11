@@ -1,5 +1,7 @@
 //! keygen, encrypt and decrypt of FESTA Public key encryption scheme
 //! It's an implementation of FESTA-128
+use std::time::Instant;
+
 use crate::{
     ecFESTA::{evaluate_isogeny_chain, factored_kummer_isogeny},
     fields::{
@@ -69,7 +71,12 @@ pub fn keygen() {
     let (a11, a22) = (rng.gen_biguint(256), rng.gen_biguint(256));
 
     // Choose a random isogeny of degree dA1
+    let isogeny_start_time = Instant::now();
     let (phiA1, EA_prime) = random_isogeny_x_only(&E0, &DA1_FACTORED, 2);
+    println!(
+        "random_isogeny_x_only elapsed : {} ms",
+        isogeny_start_time.elapsed().as_millis()
+    );
     // Choose a random isogeny of degree dA2
     let (phiA2, EA) = random_isogeny_x_only(&EA_prime, &DA2_FACTORED, 2);
 
@@ -109,10 +116,55 @@ pub fn keygen() {
 
 #[cfg(test)]
 mod tests {
-    use super::keygen;
+    use super::*;
 
     #[test]
-    fn run_keygen() {
-        keygen();
+    fn keygen_torsion_basis() {
+        let mut rng = rand::thread_rng();
+        // Setting the starting curve
+        let E0 = Curve::new(&(Fq::TWO + Fq::FOUR));
+
+        // Choose a random diagonal matrix A
+        let (a11, a22) = (rng.gen_biguint(256), rng.gen_biguint(256));
+
+        // Choose a random isogeny of degree dA1
+        let mut timewatch = Instant::now();
+        let (phiA1, EA_prime) = random_isogeny_x_only(&E0, &DA1_FACTORED, 2);
+        println!(
+            "generate random da1 elapsed : {} ms",
+            timewatch.elapsed().as_millis()
+        );
+
+        timewatch = Instant::now();
+        // Choose a random isogeny of degree dA2
+        let (phiA2, EA) = random_isogeny_x_only(&EA_prime, &DA2_FACTORED, 2);
+        println!(
+            "generate random da2 elapsed : {} ms",
+            timewatch.elapsed().as_millis()
+        );
+
+        // Create a 2^b-torsion basis
+        let l_power = BigUint::from(2u32).pow(L_POWER);
+        let d1 = BigUint::from_slice(&D1);
+        timewatch = Instant::now();
+        let (Pb, Qb) = torsion_basis(&E0, &[(2u32, L_POWER)], 0);
+        println!(
+            "generate l^e torsion basis of E0 elapsed : {} ms",
+            timewatch.elapsed().as_millis()
+        );
+
+        timewatch = Instant::now();
+        let (Pd1, Qd1) = torsion_basis(&E0, &D1_FACTORED, L_POWER as usize);
+        println!(
+            "generate d1 torsion basis of E0 elapsed : {} ms",
+            timewatch.elapsed().as_millis()
+        );
+
+        timewatch = Instant::now();
+        let (PA_prime_d2, QA_prime_d2) = torsion_basis(&EA_prime, &D2_FACTORED, L_POWER as usize);
+        println!(
+            "generate d2 torsion basis of EA elapsed : {} ms",
+            timewatch.elapsed().as_millis()
+        );
     }
 }
