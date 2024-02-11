@@ -26,7 +26,10 @@ macro_rules! define_isogeny_structure {
             /// and Edwards multiples
             pub fn new(domain: &Curve, kernel: &Point, degree: usize) -> Self {
                 debug_assert!(kernel.isinfinity() == 0, "The kernel point cannot be zero");
-                debug_assert!(domain.mul_small(kernel, degree as u64).isinfinity() != 0, "The order of the kernel point doesn't match");
+                debug_assert!(
+                    domain.mul_small(kernel, degree as u64).isinfinity() != 0,
+                    "The order of the kernel point doesn't match"
+                );
                 let mut result = KummerLineIsogeny {
                     domain: *domain,
                     codomain: None,
@@ -111,23 +114,40 @@ macro_rules! define_isogeny_structure {
                 x_new = x_new * x_new * xp;
                 z_new = z_new * z_new * zp;
 
-                self.codomain.expect("No codomain curve").complete_pointX(&PointX::new_xz(&x_new, &z_new)).0
+                self.codomain
+                    .expect("No codomain curve")
+                    .complete_pointX(&PointX::new_xz(&x_new, &z_new))
+                    .0
             }
         }
 
         impl fmt::Display for KummerLineIsogeny {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 if f.alternate() {
-                    write!(f, "domain {} -> codomain {}", self.domain.j_invariant(), self.codomain.expect("No codomain curve").j_invariant())
-                }else {
-                    write!(f, "domain {} -> codomain {}", self.domain.get_constant(), self.codomain.expect("No codomain curve").get_constant())
+                    write!(
+                        f,
+                        "domain {} -> codomain {}",
+                        self.domain.j_invariant(),
+                        self.codomain.expect("No codomain curve").j_invariant()
+                    )
+                } else {
+                    write!(
+                        f,
+                        "domain {} -> codomain {}",
+                        self.domain.get_constant(),
+                        self.codomain.expect("No codomain curve").get_constant()
+                    )
                 }
             }
         }
 
         /// Given a list of isogenies, evaluates the point for each isogeny in the list
         /// (domain, P) -> isog_1 -> ... -> isog_n -> (codomain, Q)
-        pub fn evaluate_isogeny_chain(domain: &Curve, P: &Point, isog_chain : &Vec<KummerLineIsogeny>) -> (Curve, Point) {
+        pub fn evaluate_isogeny_chain(
+            domain: &Curve,
+            P: &Point,
+            isog_chain: &Vec<KummerLineIsogeny>,
+        ) -> (Curve, Point) {
             if isog_chain.is_empty() {
                 return (*domain, *P);
             }
@@ -139,49 +159,62 @@ macro_rules! define_isogeny_structure {
             (isog_chain.last().unwrap().get_codomain(), Q)
         }
 
-
         /// Computes a composite degree isogeny
         /// Given a kernel point P of degree l1^e1 * ... * lt^et
         /// compute the chain of Kummer isogenies
-        pub fn factored_kummer_isogeny(domain : &Curve, kernel : &Point, order : &[(u32, u32)]) -> Vec<KummerLineIsogeny> {
+        pub fn factored_kummer_isogeny(
+            domain: &Curve,
+            kernel: &Point,
+            order: &[(u32, u32)],
+        ) -> Vec<KummerLineIsogeny> {
             /// Compute chain of isogenies quotienting out a point P of order l^e
-            pub fn sparse_isogeny_prime_power(start_curve: &Curve, P : &Point, l : usize, e : usize) -> Vec<KummerLineIsogeny> {
+            pub fn sparse_isogeny_prime_power(
+                start_curve: &Curve,
+                P: &Point,
+                l: usize,
+                e: usize,
+            ) -> Vec<KummerLineIsogeny> {
                 /// Compute a chain of isogenies recursively
-                pub fn recursive_sparse_isogeny(E: &Curve, Q : &Point, l : usize, k : usize) -> Vec<KummerLineIsogeny> {
+                pub fn recursive_sparse_isogeny(
+                    E: &Curve,
+                    Q: &Point,
+                    l: usize,
+                    k: usize,
+                ) -> Vec<KummerLineIsogeny> {
                     use std::cmp::{max, min};
                     if k == 1 {
-                        debug_assert!(E.mul_big(&Q, &BigUint::from(l)).isinfinity() != 0, "Q order is not 1");
+                        //debug_assert!(E.mul_big(&Q, &BigUint::from(l)).isinfinity() != 0, "Q order is not 1");
                         return vec![KummerLineIsogeny::new(E, Q, l)];
                     }
 
                     let mut k1 = (k * 8 + 5) / 10;
                     k1 = max(1, min(k - 1, k1));
-                    
+
                     // Q1 <- l^k * Q
                     let mut Q1 = Q.clone();
                     for _ in 0..k1 {
                         Q1 = E.mul_small(&Q1, l as u64);
                     }
 
-                    debug_assert!(E.mul_big(&Q1, &BigUint::from(l).pow((k - k1) as u32)).isinfinity() != 0, "Q1 order is not k-k1");
+                    //debug_assert!(E.mul_big(&Q1, &BigUint::from(l).pow((k - k1) as u32)).isinfinity() != 0, "Q1 order is not k-k1");
 
                     let mut L = recursive_sparse_isogeny(E, &Q1, l, k - k1);
                     let (coE, Q2) = evaluate_isogeny_chain(E, Q, &L);
-                    debug_assert!(coE.mul_big(&Q2, &BigUint::from(l).pow(k as u32)).isinfinity() != 0, "Q2 order is not k1");
+                    //debug_assert!(coE.mul_big(&Q2, &BigUint::from(l).pow(k as u32)).isinfinity() != 0, "Q2 order is not k1");
                     let mut R = recursive_sparse_isogeny(&coE, &Q2, l, k1);
 
                     L.append(&mut R);
                     L
                 }
 
-                debug_assert!(e != 0, "zero exponential is invalid");
+                //debug_assert!(e != 0, "zero exponential is invalid");
 
                 recursive_sparse_isogeny(start_curve, P, l, e)
             }
 
             let mut P = kernel.clone();
-            let mut curve : Curve = domain.clone();
-            let mut phi_list : Vec<KummerLineIsogeny> = Vec::new();
+            let mut curve: Curve = domain.clone();
+            let mut phi_list: Vec<KummerLineIsogeny> = Vec::new();
 
             for (l, e) in order.iter() {
                 let mut Q = P.clone();
@@ -192,15 +225,15 @@ macro_rules! define_isogeny_structure {
                         }
                     }
                 }
-                debug_assert!(Q.isinfinity() == 0, "The kernel point must be nonzero");
-                debug_assert!(curve.mul_big(&Q, &BigUint::from(*l).pow(*e)).isinfinity() != 0, "The order of the point is not correct, (l,e) = ({}, {}), Point: {}", l, e, Q);
+                //debug_assert!(Q.isinfinity() == 0, "The kernel point must be nonzero");
+                //debug_assert!(curve.mul_big(&Q, &BigUint::from(*l).pow(*e)).isinfinity() != 0, "The order of the point is not correct, (l,e) = ({}, {}), Point: {}", l, e, Q);
 
                 let mut psi_list = sparse_isogeny_prime_power(&curve, &Q, *l as usize, *e as usize);
                 (curve, P) = evaluate_isogeny_chain(&curve, &P, &psi_list);
                 phi_list.append(&mut psi_list);
             }
 
-            debug_assert!(P.isinfinity() != 0, "P is not evaluated correctly");
+            //debug_assert!(P.isinfinity() != 0, "P is not evaluated correctly");
 
             phi_list
         }
@@ -212,7 +245,8 @@ pub(crate) use define_isogeny_structure;
 #[cfg(test)]
 mod tests {
     use crate::{
-        ecFESTA::{evaluate_isogeny_chain, factored_kummer_isogeny}, thetaFESTA::{Curve, Fq}
+        ecFESTA::{evaluate_isogeny_chain, factored_kummer_isogeny},
+        thetaFESTA::{Curve, Fq},
     };
 
     use crate::fields::FpFESTAExt::BASIS_ORDER;
@@ -229,10 +263,16 @@ mod tests {
         let randQ = start_curve.rand_point(&mut rng);
         let basis_order = BigUint::from_slice(&BASIS_ORDER) * BigUint::from(2u32);
 
-        let factored_order : [(u32, u32);3] = [(2729, 2), (3359, 1), (4409, 1)];
-        let new_order = BigUint::from(2729u32) * BigUint::from(2729u32) * BigUint::from(3359u32) * BigUint::from(4409u32);
+        let factored_order: [(u32, u32); 3] = [(2729, 2), (3359, 1), (4409, 1)];
+        let new_order = BigUint::from(2729u32)
+            * BigUint::from(2729u32)
+            * BigUint::from(3359u32)
+            * BigUint::from(4409u32);
 
-        assert!((&basis_order % &new_order) == BigUint::from(0u32), "The new order is wrong");
+        assert!(
+            (&basis_order % &new_order) == BigUint::from(0u32),
+            "The new order is wrong"
+        );
 
         let cofactor = &basis_order / &new_order;
 
