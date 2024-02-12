@@ -224,6 +224,30 @@ pub fn random_isogeny_x_only(
     (isogeny_list, domain_curve)
 }
 
+/// Computes a D "odd" degree isogeny from E using
+/// x-only arithmetic and returns the KummerIsogeny
+/// together with the codomain curve
+///
+/// The kernel of this isogeny is K = <P + [m]Q>
+/// where P, Q are the canonical D torsion basis
+pub fn isogeny_from_scalar_x_only(
+    E: &Curve,
+    factored_D: &[(u32, u32)],
+    m: &BigUint,
+    basis: Option<(Point, Point)>,
+) -> (Vec<KummerLineIsogeny>, Curve) {
+    let (P, Q) = match basis {
+        Some(x) => x,
+        None => torsion_basis(E, factored_D, L_POWER as usize),
+    };
+
+    let K = E.add(&P, &E.mul_big(&Q, &m));
+    let phi = factored_kummer_isogeny(&E, &K, factored_D);
+    let codomain = phi.last().unwrap().get_codomain();
+
+    (phi, codomain)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -271,10 +295,19 @@ mod tests {
     fn compute_torsion_basis() {
         let test_curve = Curve::new(&(Fq::TWO + Fq::FOUR));
 
-        let (P, Q) = torsion_basis(&test_curve, &D2_FACTORED, L_POWER as usize);
+        let (P, Q) = torsion_basis(&test_curve, &[(71, 3)], L_POWER as usize);
+        let (R, S) = (
+            test_curve.mul_small(&P, 71u64),
+            test_curve.mul_small(&Q, 71u64),
+        );
 
         println!("P : {}", P);
         println!("Q : {}", Q);
+
+        println!(
+            "e(R,S) = {}",
+            tate_pairing(&test_curve, &R, &S, &BigUint::from(5041u32)).pow_small(71u32)
+        );
     }
 
     #[test]
