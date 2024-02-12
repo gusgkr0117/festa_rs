@@ -1,6 +1,9 @@
 /// Implementation of solving DLP in the finite field Fq
 /// Use Baby-Step Giant-Step algorithm and Pohlig-Hellman algorithm
-use crate::ecFESTA::Fq;
+use crate::{
+    ecFESTA::{Curve, Fq, Point},
+    pairing::tate_pairing,
+};
 use num_bigint::{BigInt, BigUint, Sign, ToBigInt};
 
 /// Computing the extended GCD algorithm of given two BigUint type numbers
@@ -161,6 +164,31 @@ pub fn ph_dlp(beta: &Fq, alpha: &Fq, factored_order: &[(u32, u32)]) -> BigUint {
     compute_crt(&x, factored_order)
 }
 
+/// Given a basis P, Q of E[D] finds
+/// a, b such that R = [a]P + [b]Q.
+pub fn bidlp(
+    E: &Curve,
+    R: &Point,
+    P: &Point,
+    Q: &Point,
+    factored_D: &[(u32, u32)],
+    ePQ: Option<Fq>,
+) -> (BigUint, BigUint) {
+    let order = factored_D.iter().fold(BigUint::from(1u32), |r, (l, e)| {
+        r * BigUint::from(*l).pow(*e)
+    });
+    let pair_PQ = match ePQ {
+        Some(x) => x,
+        None => tate_pairing(E, P, Q, &order),
+    };
+    let pair_a = tate_pairing(E, R, Q, &order);
+    let pair_b = tate_pairing(E, R, &-P, &order);
+    let a = ph_dlp(&pair_a, &pair_PQ, factored_D);
+    let b = ph_dlp(&pair_b, &pair_PQ, factored_D);
+
+    (a, b)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -208,5 +236,22 @@ mod tests {
         println!("result % 3^2 = {}", &result % BigUint::from(9u32));
         println!("result % 5^1 = {}", &result % BigUint::from(5u32));
         println!("result % 7^3 = {}", &result % BigUint::from(7u32).pow(3));
+    }
+
+    #[test]
+    fn test_bidlp() {
+        let factored_D = [(71u32, 3u32)];
+        let test_curve = Curve::new(&(Fq::TWO + Fq::FOUR));
+        let (P, Q) = torsion_basis(&test_curve, &factored_D, L_POWER as usize);
+        let R = test_curve.add(
+            &test_curve.mul_small(&P, 132u64),
+            &test_curve.mul_small(&Q, 3142u64),
+        );
+        let (a, b) = bidlp(&test_curve, &R, &P, &Q, &factored_D, None);
+
+        let test_point = test_curve.add(&test_curve.mul_big(&P, &a), &test_curve.mul_big(&Q, &b));
+
+        println!("R = [{}]*P + [{}]*Q", a, b);
+        assert!(R.equals(&test_point) != 0, "bidlp is wrong");
     }
 }
