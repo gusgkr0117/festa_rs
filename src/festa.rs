@@ -266,6 +266,13 @@ impl FESTACrypto {
     ) -> (BigUint, BigUint, (BigUint, BigUint)) {
         let (EA_prime, im_basis_bd1_E0, im_basis_d2_EA, A) = sk.extract();
         let (E1, R1, S1, E2, R2, S2) = c.extract();
+        let (a11, a22) = A;
+        let (R2_prime, S2_prime) = (xgcd_big(&a11, &self.l_power), xgcd_big(&a22, &self.l_power));
+
+        let (Pd1_1, Qd1_1) = torsion_basis(&E1, &D1_FACTORED, L_POWER as usize);
+        let (Pd2_2, Qd2_2) = torsion_basis(&E2, &D2_FACTORED, L_POWER as usize);
+
+        let (glue_P1, glue_Q1) = (R1, S1);
         todo!();
     }
 }

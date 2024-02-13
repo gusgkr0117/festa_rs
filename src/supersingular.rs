@@ -297,17 +297,31 @@ mod tests {
 
         let (P, Q) = torsion_basis(&test_curve, &[(71, 3)], L_POWER as usize);
         let (R, S) = (
-            test_curve.mul_small(&P, 71u64),
-            test_curve.mul_small(&Q, 71u64),
+            test_curve.mul_small(&P, 5041u64),
+            test_curve.mul_small(&Q, 5041u64),
         );
 
-        println!("P : {}", P);
-        println!("Q : {}", Q);
+        println!("R : {}", R);
+        println!("S : {}", S);
+
+        assert!(point_has_factored_order(&test_curve, &R, &[(71, 1)]));
+        assert!(point_has_factored_order(&test_curve, &S, &[(71, 1)]));
 
         println!(
             "e(R,S) = {}",
-            tate_pairing(&test_curve, &R, &S, &BigUint::from(5041u32)).pow_small(71u32)
+            tate_pairing(&test_curve, &R, &S, &BigUint::from(5041u32))
         );
+
+        let x = (|| {
+            for i in 1..71 {
+                if test_curve.mul_small(&R, i).equals(&S) != 0 {
+                    return format!("{i}");
+                }
+            }
+            "none".to_string()
+        })();
+
+        println!("S = [{x}]R");
     }
 
     #[test]
