@@ -110,5 +110,6 @@ print("P :", hex(prime))
 # PrintArray(Num2Array(dA1, 4))
 # PrintArray(Num2Array(dA2, 4))
 
-print(2**b)
-print(m1**2 * T1 + m2**2 * T2)
+assert (m1**2 * T1 + m2**2 * T2 == 2**b)
+print("m1 :", PrintArray(Num2Array(m1, 4)))
+print("m2 :", PrintArray(Num2Array(m2, 4)))
