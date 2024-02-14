@@ -295,33 +295,18 @@ mod tests {
     fn compute_torsion_basis() {
         let test_curve = Curve::new(&(Fq::TWO + Fq::FOUR));
 
-        let (P, Q) = torsion_basis(&test_curve, &[(71, 3)], L_POWER as usize);
-        let (R, S) = (
-            test_curve.mul_small(&P, 5041u64),
-            test_curve.mul_small(&Q, 5041u64),
-        );
+        let (P, Q) = torsion_basis(&test_curve, &D2_FACTORED, L_POWER as usize);
 
-        println!("R : {}", R);
-        println!("S : {}", S);
-
-        assert!(point_has_factored_order(&test_curve, &R, &[(71, 1)]));
-        assert!(point_has_factored_order(&test_curve, &S, &[(71, 1)]));
+        assert!(point_has_factored_order(&test_curve, &P, &D2_FACTORED));
+        assert!(point_has_factored_order(&test_curve, &Q, &D2_FACTORED));
 
         println!(
-            "e(R,S) = {}",
-            tate_pairing(&test_curve, &R, &S, &BigUint::from(5041u32))
+            "e(P,Q) = {}",
+            tate_pairing(&test_curve, &P, &Q, &BigUint::from_slice(&D2))
         );
 
-        let x = (|| {
-            for i in 1..71 {
-                if test_curve.mul_small(&R, i).equals(&S) != 0 {
-                    return format!("{i}");
-                }
-            }
-            "none".to_string()
-        })();
-
-        println!("S = [{x}]R");
+        println!("P = {P}");
+        println!("Q = {Q}");
     }
 
     #[test]
