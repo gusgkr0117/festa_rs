@@ -408,8 +408,8 @@ pub mod FpFESTAExt {
         (3779, 2),
     ];
     pub const D2: [u32; 9] = [
-        0x9FEF08D9, 0x0F0EC97C, 0xEB672ABC, 0x2D907456, 0x57602AC7, 0xF6834489, 0x655AA688,
-        0xAC3D185F, 0x000003CD,
+        0xE9035DDF, 0x9EDC26E4, 0xB3FDD8F0, 0x0B756A33, 0x69CB451C, 0x6FA41A34, 0x4D255546,
+        0xB6B52466, 0x0000000D,
     ];
     pub const D2_FACTORED: [(u32, u32); 18] = [
         (5, 4),
@@ -419,7 +419,7 @@ pub mod FpFESTAExt {
         (17, 2),
         (41, 2),
         (43, 2),
-        (71, 3),
+        (71, 2),
         (89, 2),
         (127, 2),
         (211, 2),
