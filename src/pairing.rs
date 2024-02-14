@@ -54,17 +54,36 @@ pub fn tate_pairing(E: &Curve, P: &Point, Q: &Point, order: &BigUint) -> Fq {
 
     let q = BigUint::from_slice(&BIGUINT_MODULUS);
     let mul_group_size = &q * &q - BigUint::from(1u32);
+
     debug_assert!(
         &mul_group_size % order == BigUint::from(0u32),
-        "The modulus is wrong"
-    );
-    debug_assert!(
-        f.pow_big(&mul_group_size).equals(&Fq::ONE) != 0,
-        "wrong group size??"
+        "The pairing order is invalid"
     );
 
-    let exp = &mul_group_size / order.pow(3);
-    println!("pre-exponent f : {f}");
+    fn clear_common_factors(n: &BigUint, a: &BigUint) -> BigUint {
+        fn gcd_big(a: &BigUint, b: &BigUint) -> BigUint {
+            let (mut m, mut n) = (a.clone(), b.clone());
+            if n > m {
+                (m, n) = (n, m);
+            }
+
+            while n != BigUint::from(0u32) {
+                (n, m) = (m % &n, n);
+            }
+
+            m
+        }
+
+        let mut result = n.clone();
+        let mut factor = gcd_big(&result, a);
+        while factor != BigUint::from(1u32) {
+            result /= factor;
+            factor = gcd_big(&result, a);
+        }
+        result
+    }
+
+    let exp = clear_common_factors(&(&mul_group_size / order), order);
     f.pow_big(&exp)
 }
 
