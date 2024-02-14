@@ -9,7 +9,7 @@ use crate::{
         FpFESTA::Fp,
         FpFESTAExt::{
             P0x, P0y, Q0x, Q0y, BASIS_ORDER, D1, D1_FACTORED, D2, D2_FACTORED, DA, DA1,
-            DA1_FACTORED, DA2, DA2_FACTORED, DA_FACTORED, L_POWER,
+            DA1_FACTORED, DA2, DA2_FACTORED, DA_FACTORED, L_POWER, M1, M2, THETA_STRATEGY,
         },
     },
     pairing::tate_pairing,
@@ -110,6 +110,7 @@ pub struct FESTACrypto {
     clear_d1: BigUint,
     clear_d2: BigUint,
     clear_lb: BigUint,
+    g2: BigUint,
     E0_lb_basis: (Point, Point),
 }
 
@@ -123,6 +124,12 @@ impl FESTACrypto {
         let clear_d2 = xgcd_big(&d2, &l_power) * &d2;
         let clear_lb = xgcd_big(&l_power, &d2) * &l_power;
         let E0_lb_basis = torsion_basis(&E0, &[(2u32, L_POWER)], 0);
+        let m1 = BigUint::from_slice(&M1);
+        let m2 = BigUint::from_slice(&M2);
+        let g1 = &m2 * BigUint::from_slice(&DA2) * &d2;
+        let g1_inv = xgcd_big(&g1, &l_power);
+        let g2 = &m1 * &d1 * g1_inv;
+
         FESTACrypto {
             E0,
             l_power,
@@ -131,6 +138,7 @@ impl FESTACrypto {
             clear_d1,
             clear_d2,
             clear_lb,
+            g2,
             E0_lb_basis,
         }
     }
@@ -267,13 +275,48 @@ impl FESTACrypto {
         let (EA_prime, im_basis_bd1_E0, im_basis_d2_EA, A) = sk.extract();
         let (E1, R1, S1, E2, R2, S2) = c.extract();
         let (a11, a22) = A;
-        let (R2_prime, S2_prime) = (xgcd_big(&a11, &self.l_power), xgcd_big(&a22, &self.l_power));
+        let (R2_prime, S2_prime) = (
+            E2.mul_big(&R2, &xgcd_big(&a11, &self.l_power)),
+            E2.mul_big(&S2, &xgcd_big(&a22, &self.l_power)),
+        );
 
         let (Pd1_1, Qd1_1) = torsion_basis(&E1, &D1_FACTORED, L_POWER as usize);
         let (Pd2_2, Qd2_2) = torsion_basis(&E2, &D2_FACTORED, L_POWER as usize);
 
         let (glue_P1, glue_Q1) = (R1, S1);
-        todo!();
+        let (glue_P2, glue_Q2) = (
+            E2.mul_big(&R2_prime, &self.g2),
+            E2.mul_big(&S2_prime, &self.g2),
+        );
+
+        let (L1_1, L1_2) = (E1.add(&Pd1_1, &R1), Pd2_2);
+        let (L2_1, L2_2) = (E1.add(&Qd1_1, &S1), Qd2_2);
+
+        let P1P2 = CouplePoint::new(&glue_P1, &glue_P2);
+        let Q1Q2 = CouplePoint::new(&glue_Q1, &glue_Q2);
+        let L1 = CouplePoint::new(&L1_1, &L1_2);
+        let L2 = CouplePoint::new(&L2_1, &L2_2);
+        let image_points = [L1, L2];
+        let E1E2 = EllipticProduct::new(&E1, &E2);
+
+        let (E3E4, images) = product_isogeny(
+            &E1E2,
+            &P1P2,
+            &Q1Q2,
+            &image_points,
+            L_POWER as usize,
+            &THETA_STRATEGY,
+        );
+
+        let (E3, E4) = E3E4.curves();
+        let (P1, P2) = images[0].points();
+        let (P3, P4) = images[1].points();
+
+        (
+            BigUint::from(0u32),
+            BigUint::from(0u32),
+            (BigUint::from(0u32), BigUint::from(0u32)),
+        )
     }
 }
 
@@ -283,8 +326,16 @@ mod tests {
 
     #[test]
     fn run_keygen() {
+        let mut timelapse = Instant::now();
         let festa = FESTACrypto::new();
-        festa.keygen();
+        println!(
+            "festa initialization elapsed : {} ms",
+            timelapse.elapsed().as_millis()
+        );
+
+        timelapse = Instant::now();
+        let (pubkey, seckey) = festa.keygen();
+        println!("keygen elapsed : {} ms", timelapse.elapsed().as_millis());
     }
 
     #[test]
