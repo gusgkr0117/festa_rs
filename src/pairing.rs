@@ -1,9 +1,6 @@
 use num_bigint::BigUint;
 
-use crate::{
-    fields::FpFESTAExt::BIGUINT_MODULUS,
-    thetaFESTA::{Curve, Fq, Point},
-};
+use crate::thetaFESTA::{Curve, Fq, Point};
 
 /// Evalute the line g crossing the two points P and Q
 /// and output g(R)
@@ -52,39 +49,19 @@ pub fn tate_pairing(E: &Curve, P: &Point, Q: &Point, order: &BigUint) -> Fq {
         return Fq::ONE;
     }
 
-    let q = BigUint::from_slice(&BIGUINT_MODULUS);
-    let mul_group_size = &q * &q - BigUint::from(1u32);
+    f
+}
 
-    debug_assert!(
-        &mul_group_size % order == BigUint::from(0u32),
-        "The pairing order is invalid"
-    );
+/// Computing Weil pairing of given two points using Tate pairing(Miller's algorithm).
+pub fn weil_pairing(E: &Curve, P: &Point, Q: &Point, order: &BigUint) -> Fq {
+    let ePQ = tate_pairing(E, P, Q, order);
+    let eQP = tate_pairing(E, Q, P, order);
 
-    fn clear_common_factors(n: &BigUint, a: &BigUint) -> BigUint {
-        fn gcd_big(a: &BigUint, b: &BigUint) -> BigUint {
-            let (mut m, mut n) = (a.clone(), b.clone());
-            if n > m {
-                (m, n) = (n, m);
-            }
-
-            while n != BigUint::from(0u32) {
-                (n, m) = (m % &n, n);
-            }
-
-            m
-        }
-
-        let mut result = n.clone();
-        let mut factor = gcd_big(&result, a);
-        while factor != BigUint::from(1u32) {
-            result /= factor;
-            factor = gcd_big(&result, a);
-        }
-        result
+    if order.bit(0) {
+        -ePQ / eQP
+    } else {
+        ePQ / eQP
     }
-
-    let exp = clear_common_factors(&(&mul_group_size / order), order);
-    f.pow_big(&exp)
 }
 
 #[cfg(test)]
@@ -99,18 +76,18 @@ mod tests {
     #[test]
     fn compute_pairing() {
         let test_curve = Curve::new(&(Fq::TWO + Fq::FOUR));
-        let basis_order = BigUint::from_slice(&BASIS_ORDER) * BigUint::from(2u32);
+        let basis_order = BigUint::from_slice(&BASIS_ORDER);
 
         // sample order for test
-        let new_order = BigUint::from(41161u32);
+        let new_order = BigUint::from(2u32).pow(L_POWER);
 
         assert!((&basis_order % &new_order) == BigUint::from(0u32));
 
-        let (test_P, test_Q) = torsion_basis(&test_curve, &[(41161u32, 1u32)], L_POWER as usize);
+        let (test_P, test_Q) = torsion_basis(&test_curve, &[(2u32, L_POWER)], 1);
         let x = 19u32;
 
-        let pairing_result = tate_pairing(&test_curve, &test_P, &test_Q, &new_order);
-        let pairing_result2 = tate_pairing(
+        let pairing_result = weil_pairing(&test_curve, &test_P, &test_Q, &new_order);
+        let pairing_result2 = weil_pairing(
             &test_curve,
             &test_P,
             &test_curve.mul_small(&test_Q, x as u64),
@@ -119,9 +96,10 @@ mod tests {
 
         println!("e(P, Q)^x : {}", pairing_result.pow_small(x));
         println!("e(P, nQ) : {}", pairing_result2);
+        println!("e(P, Q)^r : {}", pairing_result.pow_big(&new_order));
 
-        assert!(pairing_result.pow_small(41161u32).equals(&Fq::ONE) != 0);
-        assert!(pairing_result2.pow_small(41161u32).equals(&Fq::ONE) != 0);
+        assert!(pairing_result.pow_big(&new_order).equals(&Fq::ONE) != 0);
+        assert!(pairing_result2.pow_big(&new_order).equals(&Fq::ONE) != 0);
 
         assert!(pairing_result.pow_small(x).equals(&pairing_result2) != 0);
     }

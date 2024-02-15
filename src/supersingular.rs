@@ -2,7 +2,7 @@
 use crate::{
     ecFESTA::{factored_kummer_isogeny, Curve, Fq, KummerLineIsogeny, Point},
     fields::FpFESTAExt::{BASIS_ORDER, L_POWER},
-    pairing::tate_pairing,
+    pairing::weil_pairing,
 };
 use num_bigint::BigUint;
 
@@ -188,7 +188,7 @@ pub fn torsion_basis(E: &Curve, factored_D: &[(u32, u32)], even_power: usize) ->
             continue;
         }
 
-        let ePQ = tate_pairing(E, &P, &Q, &D);
+        let ePQ = weil_pairing(E, &P, &Q, &D);
         //check if the order of ePQ is equal to D
         if !has_factored_order(ePQ, factored_D) {
             continue;
@@ -253,6 +253,7 @@ mod tests {
     use crate::{
         ecFESTA::Fq,
         fields::FpFESTAExt::{D1, D1_FACTORED, D2, D2_FACTORED},
+        pairing::weil_pairing,
     };
 
     use super::*;
@@ -295,18 +296,18 @@ mod tests {
     fn compute_torsion_basis() {
         let test_curve = Curve::new(&(Fq::TWO + Fq::FOUR));
 
-        let (P, Q) = torsion_basis(&test_curve, &D2_FACTORED, L_POWER as usize);
+        let (P, Q) = torsion_basis(&test_curve, &[(2, L_POWER)], 0 as usize);
 
-        assert!(point_has_factored_order(&test_curve, &P, &D2_FACTORED));
-        assert!(point_has_factored_order(&test_curve, &Q, &D2_FACTORED));
+        assert!(point_has_factored_order(&test_curve, &P, &[(2, L_POWER)]));
+        assert!(point_has_factored_order(&test_curve, &Q, &[(2, L_POWER)]));
 
-        println!(
-            "e(P,Q) = {}",
-            tate_pairing(&test_curve, &P, &Q, &BigUint::from_slice(&D2))
-        );
+        let l_power = BigUint::from(2u32).pow(L_POWER);
+        let ePQ = weil_pairing(&test_curve, &P, &Q, &l_power);
 
-        println!("P = {P}");
-        println!("Q = {Q}");
+        println!("e(P,Q)^r = {}", ePQ.pow_big(&l_power).pow_small(1024u32));
+
+        // println!("P = {P}");
+        // println!("Q = {Q}");
     }
 
     #[test]
