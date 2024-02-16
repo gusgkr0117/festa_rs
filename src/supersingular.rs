@@ -1,7 +1,12 @@
 //! Functions for the supersingular curves
+use std::collections::HashMap;
+
 use crate::{
     ecFESTA::{factored_kummer_isogeny, Curve, Fq, KummerLineIsogeny, Point},
-    fields::FpFESTAExt::{BASIS_ORDER, L_POWER},
+    fields::{
+        FpFESTA::Fp,
+        FpFESTAExt::{BASIS_ORDER, BIGUINT_MODULUS, L_POWER},
+    },
     pairing::weil_pairing,
 };
 use num_bigint::BigUint;
@@ -199,6 +204,87 @@ pub fn torsion_basis(E: &Curve, factored_D: &[(u32, u32)], even_power: usize) ->
     (Point::INFINITY, Point::INFINITY)
 }
 
+/// Optimized algorithm for generating k*2^l torsion basis
+pub fn entangled_torsion_basis(E: &Curve, cofactor: &BigUint) -> (Point, Point) {
+    fn precompute_elligator_tables() -> (Vec<(Fq, Fq)>, Vec<(Fq, Fq)>) {
+        let u = Fq::ZETA;
+        let mut T1 = Vec::<(Fq, Fq)>::new();
+        let mut T2 = Vec::<(Fq, Fq)>::new();
+        let mut r = Fq::ONE;
+        for _ in 0..30 {
+            let v = (Fq::ONE + &u * &r.square()).invert();
+            if v.legendre() == 1 {
+                T2.push((r, v));
+            } else {
+                T1.push((r, v));
+            }
+            r += Fq::ONE;
+        }
+
+        (T1, T2)
+    }
+
+    let p = BigUint::from_slice(&BIGUINT_MODULUS);
+    let p_sqrt = (p + BigUint::from(1u32)) / BigUint::from(4u32);
+    let u = Fq::ZETA * Fq::TWO;
+    let u0 = Fq::ONE + Fq::ZETA;
+
+    let (TQNR, TQR) = precompute_elligator_tables();
+
+    // Pick the lookup table depending on whether
+    // A = a + ib is a quadratic residue or quadratic nonresidue
+    let A = E.get_constant();
+    let T = match A.legendre() {
+        1i32 => TQNR,
+        -1i32 => TQR,
+        _ => panic!("invalid curve for entangled torsion basis algorithm"),
+    };
+
+    // Look through the table to find point with
+    // rational (x, y)
+    let mut y: Option<Fq> = None;
+    let (mut s, mut c, mut d): (Fp, Fp, Fp) = (Fp::ONE, Fp::ONE, Fp::ONE);
+    let (mut x, mut r) = (Fq::ONE, Fq::ONE);
+    for (ri, v) in T.iter() {
+        (r, x) = (*ri, -A * v);
+        let t = x * (x.square() + A * x + Fq::ONE);
+
+        // break when we find rational y: t = y^2
+        (c, d) = t.get_coeff();
+        let z = c.square() + d.square();
+        s = z.pow_big(&p_sqrt);
+        if s.square().equals(&z) != 0 {
+            y = Some(t.sqrt().0);
+            break;
+        }
+    }
+
+    if y.is_none() {
+        panic!("Never found a y-coordinate, increase the lookup table size");
+    }
+
+    let z = (&c + &s).half();
+    let alpha = z.pow_big(&p_sqrt);
+    let beta = d / (&alpha + &alpha);
+
+    let y = match alpha.square().equals(&z) != 0 {
+        true => Fq::new(&alpha, &beta),
+        false => -Fq::new(&beta, &alpha),
+    };
+
+    debug_assert!(y.square() == &x * &x * &x + A * x.square() + &x);
+
+    let S1 = Point::new_xy(&x, &y);
+
+    let (s21, s22) = ((u * r.square() * x), (u0 * r * y));
+
+    debug_assert!(s22.square() == &s21 * &s21 * &s21 + A * s21.square() + &s21);
+
+    let S2 = Point::new_xy(&s21, &s22);
+
+    (E.mul_big(&S1, &cofactor), E.mul_big(&S2, &cofactor))
+}
+
 /// Generate a random isogeny
 pub fn random_isogeny_x_only(
     E: &Curve,
@@ -313,10 +399,43 @@ mod tests {
     #[test]
     fn compute_l_power_torsion_basis() {
         let test_curve = Curve::new(&(Fq::TWO + Fq::FOUR));
-        let degree: [(u32, u32); 1] = [(2u32, L_POWER)];
-        let (P, Q) = torsion_basis(&test_curve, &degree, 0);
+        let l_power = BigUint::from(2u32).pow(L_POWER);
+        let basis_order = BigUint::from_slice(&BASIS_ORDER);
+        let cofactor = &basis_order / &l_power;
+        let (P, Q) = entangled_torsion_basis(&test_curve, &cofactor);
         println!("P : {}", P);
         println!("Q : {}", Q);
+
+        println!("[2^l]*P={}", test_curve.mul_big(&P, &l_power));
+        println!("[2^l]*Q={}", test_curve.mul_big(&Q, &basis_order));
+        // debug_assert_ne!(
+        //     test_curve.mul_big(&P, &l_power).isinfinity(),
+        //     0,
+        //     "P has wrong order"
+        // );
+        // debug_assert_ne!(
+        //     test_curve.mul_big(&Q, &l_power).isinfinity(),
+        //     0,
+        //     "P has wrong order"
+        // );
+
+        let cofactor = BigUint::from(2u32).pow(L_POWER - 11);
+        let (R, S) = (
+            test_curve.mul_big(&P, &cofactor),
+            test_curve.mul_big(&Q, &cofactor),
+        );
+        // Test if two given points are independent
+        for (i, j) in (1..2049).zip(1..2049) {
+            if test_curve
+                .mul_small(&R, i)
+                .equals(&test_curve.mul_small(&S, j))
+                != 0
+            {
+                println!("S = {i}R");
+                return;
+            }
+        }
+        println!("R and S are linearly independent");
     }
 
     #[test]
