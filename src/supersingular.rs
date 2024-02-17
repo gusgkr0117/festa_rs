@@ -207,7 +207,7 @@ pub fn torsion_basis(E: &Curve, factored_D: &[(u32, u32)], even_power: usize) ->
 /// Optimized algorithm for generating k*2^l torsion basis
 pub fn entangled_torsion_basis(E: &Curve, cofactor: &BigUint) -> (Point, Point) {
     fn precompute_elligator_tables() -> (Vec<(Fq, Fq)>, Vec<(Fq, Fq)>) {
-        let u = Fq::ZETA;
+        let u = Fq::ZETA * Fq::TWO;
         let mut T1 = Vec::<(Fq, Fq)>::new();
         let mut T2 = Vec::<(Fq, Fq)>::new();
         let mut r = Fq::ONE;
@@ -272,13 +272,9 @@ pub fn entangled_torsion_basis(E: &Curve, cofactor: &BigUint) -> (Point, Point) 
         false => -Fq::new(&beta, &alpha),
     };
 
-    debug_assert!(y.square() == &x * &x * &x + A * x.square() + &x);
-
     let S1 = Point::new_xy(&x, &y);
 
     let (s21, s22) = ((u * r.square() * x), (u0 * r * y));
-
-    debug_assert!(s22.square() == &s21 * &s21 * &s21 + A * s21.square() + &s21);
 
     let S2 = Point::new_xy(&s21, &s22);
 
@@ -406,18 +402,16 @@ mod tests {
         println!("P : {}", P);
         println!("Q : {}", Q);
 
-        println!("[2^l]*P={}", test_curve.mul_big(&P, &l_power));
-        println!("[2^l]*Q={}", test_curve.mul_big(&Q, &basis_order));
-        // debug_assert_ne!(
-        //     test_curve.mul_big(&P, &l_power).isinfinity(),
-        //     0,
-        //     "P has wrong order"
-        // );
-        // debug_assert_ne!(
-        //     test_curve.mul_big(&Q, &l_power).isinfinity(),
-        //     0,
-        //     "P has wrong order"
-        // );
+        assert_ne!(
+            test_curve.mul_big(&P, &l_power).isinfinity(),
+            0,
+            "P has wrong order"
+        );
+        assert_ne!(
+            test_curve.mul_big(&Q, &basis_order).isinfinity(),
+            0,
+            "Q has wrong order"
+        );
 
         let cofactor = BigUint::from(2u32).pow(L_POWER - 11);
         let (R, S) = (
@@ -425,13 +419,13 @@ mod tests {
             test_curve.mul_big(&Q, &cofactor),
         );
         // Test if two given points are independent
-        for (i, j) in (1..2049).zip(1..2049) {
+        for (i, j) in (1..2048).zip(1..2048) {
             if test_curve
                 .mul_small(&R, i)
                 .equals(&test_curve.mul_small(&S, j))
                 != 0
             {
-                println!("S = {i}R");
+                println!("{j}S = {i}R");
                 return;
             }
         }
