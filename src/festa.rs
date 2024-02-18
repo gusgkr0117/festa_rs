@@ -1,6 +1,6 @@
 //! keygen, encrypt and decrypt of FESTA Public key encryption scheme
 //! It's an implementation of FESTA-128
-use std::time::Instant;
+use std::fmt;
 
 use crate::{
     discrete_log::{bidlp, xgcd_big},
@@ -8,12 +8,14 @@ use crate::{
     fields::{
         FpFESTA::Fp,
         FpFESTAExt::{
-            P0x, P0y, Q0x, Q0y, BASIS_ORDER, D1, D1_FACTORED, D2, D2_FACTORED, DA, DA1,
-            DA1_FACTORED, DA2, DA2_FACTORED, DA_FACTORED, L_POWER, M1, M2, THETA_STRATEGY,
+            BASIS_ORDER, D1, D1_FACTORED, D2, D2_FACTORED, DA, DA1, DA1_FACTORED, DA2,
+            DA2_FACTORED, DA_FACTORED, L_POWER, M1, M2, THETA_STRATEGY,
         },
     },
-    pairing::tate_pairing,
-    supersingular::{isogeny_from_scalar_x_only, random_isogeny_x_only, torsion_basis},
+    pairing::{tate_pairing, weil_pairing},
+    supersingular::{
+        entangled_torsion_basis, isogeny_from_scalar_x_only, random_isogeny_x_only, torsion_basis,
+    },
     thetaFESTA::{
         product_isogeny, CouplePoint, Curve, EllipticProduct, Fq, KummerLineIsogeny, Point,
     },
@@ -102,6 +104,36 @@ impl TrapdoorOutput {
     }
 }
 
+pub struct TrapdoorInput {
+    s1: BigUint,
+    s2: BigUint,
+    diagmatB: (BigUint, BigUint),
+}
+
+impl TrapdoorInput {
+    pub fn new(s1: &BigUint, s2: &BigUint, diagmatB: &(BigUint, BigUint)) -> Self {
+        TrapdoorInput {
+            s1: s1.clone(),
+            s2: s2.clone(),
+            diagmatB: diagmatB.clone(),
+        }
+    }
+
+    pub fn extract(&self) -> (BigUint, BigUint, (BigUint, BigUint)) {
+        (self.s1.clone(), self.s2.clone(), self.diagmatB.clone())
+    }
+}
+
+impl fmt::Display for TrapdoorInput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "({}, {}, ({}, {}))",
+            self.s1, self.s2, self.diagmatB.0, self.diagmatB.1
+        )
+    }
+}
+
 pub struct FESTACrypto {
     E0: Curve,
     l_power: BigUint,
@@ -118,12 +150,13 @@ impl FESTACrypto {
     pub fn new() -> Self {
         let E0 = Curve::new(&(Fq::TWO + Fq::FOUR));
         let l_power = BigUint::from(2u32).pow(L_POWER);
+        let basis_order = BigUint::from_slice(&BASIS_ORDER);
         let d1 = BigUint::from_slice(&D1);
         let d2 = BigUint::from_slice(&D2);
         let clear_d1 = xgcd_big(&d1, &l_power) * &d1;
         let clear_d2 = xgcd_big(&d2, &l_power) * &d2;
         let clear_lb = xgcd_big(&l_power, &d2) * &l_power;
-        let E0_lb_basis = torsion_basis(&E0, &[(2u32, L_POWER)], 0);
+        let E0_lb_basis = entangled_torsion_basis(&E0, &(basis_order / &l_power));
         let m1 = BigUint::from_slice(&M1);
         let m2 = BigUint::from_slice(&M2);
         let g1 = &m2 * BigUint::from_slice(&DA2) * &d2;
@@ -203,7 +236,7 @@ impl FESTACrypto {
         );
 
         let (PA_d2, QA_d2) = torsion_basis(&EA, &D2_FACTORED, L_POWER as usize);
-        let ePQ = tate_pairing(&EA, &PA_d2, &QA_d2, &d2);
+        let ePQ = weil_pairing(&EA, &PA_d2, &QA_d2, &d2);
         let (a1, b1) = bidlp(&EA, &PA_d2, &imPAd2, &imQAd2, &D2_FACTORED, Some(ePQ));
         let (a2, b2) = bidlp(&EA, &QA_d2, &imPAd2, &imQAd2, &D2_FACTORED, Some(ePQ));
 
@@ -235,24 +268,19 @@ impl FESTACrypto {
     ///         the masking matrix B
     /// Output : two elliptic curves E1 and E2 along with masked torsion bases
     ///         <R1, S1> = E1[l^b] and <R2, S2> = E2[l^b]
-    pub fn trapdoor_eval(
-        &self,
-        pk: &PublicKey,
-        s1: &BigUint,
-        s2: &BigUint,
-        diagmatB: &(BigUint, BigUint),
-    ) -> TrapdoorOutput {
+    pub fn trapdoor_eval(&self, pk: &PublicKey, m: &TrapdoorInput) -> TrapdoorOutput {
+        let (s1, s2, diagmatB) = m.extract();
         let (EA, R, S) = pk.extract();
         let (b11, b22) = diagmatB.clone();
 
-        let (phi_1, E1) = isogeny_from_scalar_x_only(&self.E0, &D1_FACTORED, s1, None);
+        let (phi_1, E1) = isogeny_from_scalar_x_only(&self.E0, &D1_FACTORED, &s1, None);
         let (Pb, Qb) = self.E0_lb_basis;
         let ((_, imPb), (_, imQb)) = (
             evaluate_isogeny_chain(&self.E0, &Pb, &phi_1),
             evaluate_isogeny_chain(&self.E0, &Qb, &phi_1),
         );
 
-        let (phi_2, E2) = isogeny_from_scalar_x_only(&EA, &D2_FACTORED, s2, None);
+        let (phi_2, E2) = isogeny_from_scalar_x_only(&EA, &D2_FACTORED, &s2, None);
         let ((_, imR), (_, imS)) = (
             evaluate_isogeny_chain(&EA, &R, &phi_2),
             evaluate_isogeny_chain(&EA, &S, &phi_2),
@@ -264,14 +292,30 @@ impl FESTACrypto {
         TrapdoorOutput::new(&E1, &R1, &S1, &E2, &R2, &S2)
     }
 
+    /// Given the (2^b, 2^b)-isogeny between elliptic products and pairs
+    /// of points L1_preimage, L2_preimage compute L1 and L2 by
+    /// phi(L1_preimage) and Phi(L2_preimage)
+    fn compute_Li_from_richelot_chain() -> (Point, Point) {
+        todo!();
+    }
+
+    /// Wrapper function which recovers s1, s2 and the masking matrix B given
+    /// the output of the (l,l)-chain during the inverse trapdoor function
+    /// calculation
+    fn recover_si_and_B(
+        &self,
+        L1: &CouplePoint,
+        L2: &CouplePoint,
+        im_basis_bd1_E0: &(Point, Point),
+        im_basis_d2_EA: &(Point, Point),
+    ) -> TrapdoorInput {
+        todo!();
+    }
+
     /// The FESTA inverted trapdoor function following algorithm 7 in the FESTA paper.
     /// Given a tuple c and the secret key, sk, this function recovers the integers
     /// s1, s2 and the masking matrix B
-    pub fn trapdoor_inverse(
-        &self,
-        c: &TrapdoorOutput,
-        sk: &SecretKey,
-    ) -> (BigUint, BigUint, (BigUint, BigUint)) {
+    pub fn trapdoor_inverse(&self, c: &TrapdoorOutput, sk: &SecretKey) -> TrapdoorInput {
         let (EA_prime, im_basis_bd1_E0, im_basis_d2_EA, A) = sk.extract();
         let (E1, R1, S1, E2, R2, S2) = c.extract();
         let (a11, a22) = A;
@@ -309,20 +353,70 @@ impl FESTACrypto {
         );
 
         let (E3, E4) = E3E4.curves();
+        println!("EA_prime : {:#}", EA_prime.j_invariant());
+        println!("E3 : {:#}, E4 : {:#}", E3.j_invariant(), E4.j_invariant());
         let (P1, P2) = images[0].points();
         let (P3, P4) = images[1].points();
+        let imL1 = CouplePoint::new(&P1, &P2);
+        let imL2 = CouplePoint::new(&P3, &P4);
 
-        (
-            BigUint::from(0u32),
-            BigUint::from(0u32),
-            (BigUint::from(0u32), BigUint::from(0u32)),
-        )
+        self.recover_si_and_B(&imL1, &imL2, &im_basis_bd1_E0, &im_basis_d2_EA)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use super::*;
+    use num_bigint::RandBigInt;
+    use rand::thread_rng;
+
+    #[test]
+    fn run_festa_trapdoor() {
+        let mut timelapse = Instant::now();
+        let festa = FESTACrypto::new();
+        println!(
+            "festa initialization elapsed : {} ms",
+            timelapse.elapsed().as_millis()
+        );
+
+        timelapse = Instant::now();
+        let (pubkey, seckey) = festa.keygen();
+        println!("keygen elapsed : {} ms", timelapse.elapsed().as_millis());
+
+        // Pick random constants
+        let d1 = BigUint::from_slice(&D1);
+        let d2 = BigUint::from_slice(&D2);
+        let mut rng = thread_rng();
+        let s1 = rng.gen_biguint_range(&BigUint::from(0u32), &d1);
+        let s2 = rng.gen_biguint_range(&BigUint::from(0u32), &d2);
+        let (a11, a22) = (
+            rng.gen_biguint(L_POWER as u64),
+            rng.gen_biguint(L_POWER as u64),
+        );
+        let trapdoor_input = TrapdoorInput::new(&s1, &s2, &(a11, a22));
+
+        println!("Input : {}", trapdoor_input);
+
+        // Evaluating the FESTA trapdoor
+        timelapse = Instant::now();
+        let result = festa.trapdoor_eval(&pubkey, &trapdoor_input);
+        println!(
+            "trapdoor_eval elapsed : {} ms",
+            timelapse.elapsed().as_millis()
+        );
+
+        // Inverting the FESTA trapdoor
+        timelapse = Instant::now();
+        let inverted = festa.trapdoor_inverse(&result, &seckey);
+        println!(
+            "trapdoor_inverse elapsed : {} ms",
+            timelapse.elapsed().as_millis()
+        );
+
+        println!("Output : {}", inverted);
+    }
 
     #[test]
     fn run_keygen() {
