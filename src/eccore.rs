@@ -271,6 +271,18 @@ macro_rules! define_ec_core {
                 r
             }
 
+            /// Check if the given point is on this curve
+            pub fn on_curve(self, P: &Point) -> bool {
+                if P.isinfinity() != 0 {
+                    return true;
+                }
+
+                let (x, y) = P.to_xy();
+                y.square()
+                    .equals(&(&x * &(x.square() + self.A * &x + Fq::ONE)))
+                    != 0
+            }
+
             /// Get a Point instance set to the provided affine coordinates.
             /// IMPORTANT: this function does NOT check whether the point is on
             /// curve or not.
