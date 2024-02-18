@@ -2,7 +2,7 @@
 /// Use Baby-Step Giant-Step algorithm and Pohlig-Hellman algorithm
 use crate::{
     ecFESTA::{Curve, Fq, Point},
-    pairing::tate_pairing,
+    pairing::weil_pairing,
 };
 use num_bigint::{BigInt, BigUint, Sign, ToBigInt};
 
@@ -179,10 +179,10 @@ pub fn bidlp(
     });
     let pair_PQ = match ePQ {
         Some(x) => x,
-        None => tate_pairing(E, P, Q, &order),
+        None => weil_pairing(E, P, Q, &order),
     };
-    let pair_a = tate_pairing(E, R, Q, &order);
-    let pair_b = tate_pairing(E, R, &-P, &order);
+    let pair_a = weil_pairing(E, R, Q, &order);
+    let pair_b = weil_pairing(E, R, &-P, &order);
     let a = ph_dlp(&pair_a, &pair_PQ, factored_D);
     let b = ph_dlp(&pair_b, &pair_PQ, factored_D);
 
