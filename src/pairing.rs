@@ -68,7 +68,7 @@ pub fn weil_pairing(E: &Curve, P: &Point, Q: &Point, order: &BigUint) -> Fq {
 mod tests {
     use crate::{
         fields::FpFESTAExt::{BASIS_ORDER, L_POWER},
-        supersingular::torsion_basis,
+        supersingular::{entangled_torsion_basis, has_factored_order, torsion_basis},
     };
 
     use super::*;
@@ -102,5 +102,27 @@ mod tests {
         assert!(pairing_result2.pow_big(&new_order).equals(&Fq::ONE) != 0);
 
         assert!(pairing_result.pow_small(x).equals(&pairing_result2) != 0);
+    }
+
+    #[test]
+    fn compute_l_power_pairing() {
+        let test_curve = Curve::new(&(Fq::TWO + Fq::FOUR));
+        let basis_order = BigUint::from_slice(&BASIS_ORDER);
+        let l_power = BigUint::from(2u32).pow(L_POWER);
+        let cofactor = &basis_order / &l_power;
+        let (P, Q) = entangled_torsion_basis(&test_curve, &cofactor);
+        assert!(test_curve.mul_big(&P, &l_power).isinfinity() != 0);
+        assert!(test_curve.mul_big(&Q, &l_power).isinfinity() != 0);
+        let ePQ = weil_pairing(&test_curve, &P, &Q, &l_power);
+        println!("e(P, Q) = {}", ePQ);
+        assert!(
+            ePQ.pow_big(&l_power).equals(&Fq::ONE) != 0,
+            "ePQ^d = {}",
+            ePQ.pow_big(&l_power)
+        );
+        assert!(
+            has_factored_order(ePQ, &[(2u32, L_POWER)]),
+            "e(P, Q) has wrong order"
+        );
     }
 }
