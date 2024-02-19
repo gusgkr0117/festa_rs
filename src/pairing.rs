@@ -16,6 +16,11 @@ fn eval_line(E: &Curve, P: &Point, Q: &Point, R: &Point) -> Fq {
     let (Rx, Ry) = R.to_xy();
     let a = E.get_constant();
     if P.equals(&Q) != 0 {
+        if Py.iszero() != 0 {
+            result = Rx + (-Px);
+            return result;
+        }
+
         let lambda = (Fq::THREE * Px * Px + Fq::TWO * a * Px + Fq::ONE) / (Fq::TWO * Py);
         result = -lambda * Rx + Ry + (-Py + lambda * Px);
     } else if P.equals(&(-Q)) != 0 {
