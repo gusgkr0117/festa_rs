@@ -9,6 +9,7 @@
 
 macro_rules! define_isogeny_structure {
     () => {
+        use crate::pairing::weil_pairing;
         /// Computation of isogenies between Kummer lines using x-only formula by Costello-Hisil-Renes
         /// This is used to compute only short prime degree isogenies
         /// To compute the composite degree isogeny, use KummerLineIsogenyChain
@@ -159,6 +160,41 @@ macro_rules! define_isogeny_structure {
             (isog_chain.last().unwrap().get_codomain(), Q)
         }
 
+        /// Given the d-torsion basis <P, Q> = E[n]
+        /// compute the image of the torsion basis up to the overall sign : ±(phi(P), phi(Q))
+        pub fn evaluate_isogeny_chain_for_basis(
+            domain: &Curve,
+            basis: &(Point, Point),
+            isog_chain: &Vec<KummerLineIsogeny>,
+            torsion_order: &BigUint,
+            isogeny_degree: &BigUint,
+        ) -> (Curve, (Point, Point)) {
+            let (P, Q) = *basis;
+            let ((codomain, imP), (_, mut imQ)) = (
+                evaluate_isogeny_chain(domain, &P, isog_chain),
+                evaluate_isogeny_chain(domain, &Q, isog_chain),
+            );
+
+            let pair_E0 = weil_pairing(domain, &P, &Q, torsion_order);
+            let pair_E1 = weil_pairing(&codomain, &imP, &imQ, torsion_order);
+
+            // if e(P, Q)^n != e(phi(P), phi(Q))
+            if pair_E0.pow_big(isogeny_degree).equals(&pair_E1) == 0 {
+                println!(
+                    "pairing result : {}",
+                    pair_E0.pow_big(isogeny_degree) * &pair_E1
+                );
+                debug_assert_ne!(
+                    (pair_E0.pow_big(isogeny_degree) * &pair_E1).equals(&Fq::ONE),
+                    0,
+                    "The pairing result is wrong"
+                );
+                imQ = -imQ;
+            }
+
+            (codomain, (imP, imQ))
+        }
+
         /// Computes a composite degree isogeny
         /// Given a kernel point P of degree l1^e1 * ... * lt^et
         /// compute the chain of Kummer isogenies
@@ -246,14 +282,60 @@ pub(crate) use define_isogeny_structure;
 mod tests {
     use crate::{
         discrete_log::{bidlp, ph_dlp},
-        ecFESTA::{evaluate_isogeny_chain, factored_kummer_isogeny},
-        fields::FpFESTAExt::L_POWER,
-        supersingular::{generate_point_order_factored_D, point_has_factored_order, torsion_basis},
+        ecFESTA::{
+            evaluate_isogeny_chain, evaluate_isogeny_chain_for_basis, factored_kummer_isogeny,
+            KummerLineIsogeny,
+        },
+        fields::FpFESTAExt::{D1, D1_FACTORED, L_POWER},
+        isogeny,
+        pairing::weil_pairing,
+        supersingular::{
+            entangled_torsion_basis, generate_point_order_factored_D, has_factored_order,
+            point_has_factored_order, torsion_basis,
+        },
         thetaFESTA::{Curve, Fq},
     };
 
     use crate::fields::FpFESTAExt::BASIS_ORDER;
     use num_bigint::BigUint;
+
+    #[test]
+    fn evaluate_isogeny_for_basis() {
+        let start_curve = Curve::new(&(Fq::TWO + Fq::FOUR));
+        let basis_order = BigUint::from_slice(&BASIS_ORDER);
+        let l_power = BigUint::from(2u32).pow(L_POWER);
+        let isogeny_degree_factored = [(2309u32, 1u32), (631u32, 1u32)];
+        let isogeny_degree = isogeny_degree_factored
+            .iter()
+            .fold(BigUint::from(1u32), |r, (l, e)| {
+                r * BigUint::from(*l).pow(*e)
+            });
+        let cofactor = &basis_order / &l_power;
+        let (P, Q) = entangled_torsion_basis(&start_curve, &cofactor);
+        let kernel = generate_point_order_factored_D(
+            &start_curve,
+            &isogeny_degree_factored,
+            L_POWER as usize,
+        );
+        let phi = factored_kummer_isogeny(&start_curve, &kernel, &isogeny_degree_factored);
+        let ((codomain, imP), (_, mut imQ)) = (
+            evaluate_isogeny_chain(&start_curve, &P, &phi),
+            evaluate_isogeny_chain(&start_curve, &Q, &phi),
+        );
+
+        let pair_E0 = weil_pairing(&start_curve, &P, &Q, &l_power);
+        let pair_E1 = weil_pairing(&codomain, &imP, &imQ, &l_power);
+        let pair_E0_d = pair_E0.pow_big(&isogeny_degree);
+
+        println!("pair_E0^lb = {}", pair_E0.pow_big(&l_power));
+        assert!(pair_E0.pow_big(&l_power).equals(&Fq::ONE) != 0);
+        assert!(pair_E1.pow_big(&l_power).equals(&Fq::ONE) != 0);
+        assert!(has_factored_order(pair_E0, &[(2, L_POWER)]));
+        assert!(has_factored_order(pair_E1, &[(2, L_POWER)]));
+
+        println!("pair_E0^d = {}", pair_E0_d);
+        println!("pair_E1 = {}", pair_E1);
+    }
 
     #[test]
     fn compute_isogeny() {
