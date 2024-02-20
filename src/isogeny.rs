@@ -180,15 +180,6 @@ macro_rules! define_isogeny_structure {
 
             // if e(P, Q)^n != e(phi(P), phi(Q))
             if pair_E0.pow_big(isogeny_degree).equals(&pair_E1) == 0 {
-                println!(
-                    "pairing result : {}",
-                    pair_E0.pow_big(isogeny_degree) * &pair_E1
-                );
-                debug_assert_ne!(
-                    (pair_E0.pow_big(isogeny_degree) * &pair_E1).equals(&Fq::ONE),
-                    0,
-                    "The pairing result is wrong"
-                );
                 imQ = -imQ;
             }
 
