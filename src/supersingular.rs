@@ -2,6 +2,7 @@
 use std::collections::HashMap;
 
 use crate::{
+    discrete_log::{bidlp, compute_crt, xgcd_big},
     ecFESTA::{factored_kummer_isogeny, Curve, Fq, KummerLineIsogeny, Point},
     fields::{
         FpFESTA::Fp,
@@ -279,6 +280,45 @@ pub fn entangled_torsion_basis(E: &Curve, cofactor: &BigUint) -> (Point, Point) 
     let S2 = Point::new_xy(&s21, &s22);
 
     (E.mul_big(&S1, &cofactor), E.mul_big(&S2, &cofactor))
+}
+
+/// Algorithm 6 of the FESTA paper
+/// Given points R and S
+/// Find the integer s such that <R, S> = <P + [s]Q>
+/// Cautious : D must be odd number
+pub fn compute_canonical_kernel(
+    E: &Curve,
+    imP: &Point,
+    imQ: &Point,
+    factored_D: &[(u32, u32)],
+) -> BigUint {
+    let (P, Q) = torsion_basis(&E, factored_D, L_POWER as usize);
+    let order = factored_D.iter().fold(BigUint::from(1u32), |r, (l, e)| {
+        r * BigUint::from(*l).pow(*e)
+    });
+    let ePQ = weil_pairing(&E, &P, &Q, &order);
+    let (a1, b1) = bidlp(&E, imP, &P, &Q, factored_D, Some(ePQ));
+    let (a2, b2) = bidlp(&E, imQ, &P, &Q, factored_D, Some(ePQ));
+
+    let mut t1_list = Vec::new();
+    let mut t2_list = Vec::new();
+
+    for (l, e) in factored_D.iter() {
+        let di = BigUint::from(*l).pow(*e);
+        let (t1, t2) = if &a1 % l == BigUint::from(0u32) {
+            (BigUint::from(0u32), xgcd_big(&a2, &di))
+        } else {
+            (xgcd_big(&a1, &di), BigUint::from(0u32))
+        };
+
+        t1_list.push(t1);
+        t2_list.push(t2);
+    }
+
+    let t1 = compute_crt(&t1_list, factored_D);
+    let t2 = compute_crt(&t2_list, factored_D);
+
+    (t1 * b1 + t2 * b2) % order
 }
 
 /// Generate a random isogeny
