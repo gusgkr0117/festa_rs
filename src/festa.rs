@@ -14,8 +14,8 @@ use crate::{
     },
     pairing::{tate_pairing, weil_pairing},
     supersingular::{
-        entangled_torsion_basis, has_factored_order, isogeny_from_scalar_x_only,
-        point_has_factored_order, random_isogeny_x_only, torsion_basis,
+        compute_canonical_kernel, entangled_torsion_basis, has_factored_order,
+        isogeny_from_scalar_x_only, point_has_factored_order, random_isogeny_x_only, torsion_basis,
     },
     thetaFESTA::{
         product_isogeny, CouplePoint, Curve, EllipticProduct, Fq, KummerLineIsogeny, Point,
@@ -376,6 +376,11 @@ impl FESTACrypto {
 
         let (phi_A2_dual_Pd2, phi_A2_dual_Qd2) = im_basis_d2_EA;
 
+        let s1 = compute_canonical_kernel(E, &imPd1, &imQd1, &D1_FACTORED);
+        let s2 = compute_canonical_kernel(E, &imPd2, &imQd2, &D2_FACTORED);
+        println!("s1 : {}", s1);
+        println!("s2 : {}", s2);
+
         todo!();
     }
 
@@ -404,13 +409,13 @@ impl FESTACrypto {
             &E1,
             &E1.double_iter(&glue_P1, 2),
             &E1.double_iter(&glue_Q1, 2),
-            &BigUint::from(THETA_ISOGENY_LENGTH),
+            &BigUint::from(2u32).pow(THETA_ISOGENY_LENGTH),
         );
         let eP2Q2 = weil_pairing(
             &E2,
             &E2.double_iter(&glue_P2, 2),
             &E2.double_iter(&glue_Q2, 2),
-            &BigUint::from(THETA_ISOGENY_LENGTH),
+            &BigUint::from(2u32).pow(THETA_ISOGENY_LENGTH),
         );
         debug_assert_eq!(
             eP1Q1 * eP2Q2,
@@ -449,7 +454,16 @@ impl FESTACrypto {
         let (P3, P4) = images[1].points();
 
         let (L1, L2) = if E3.j_invariant() == EA_prime.j_invariant() {
-            assert!(EA_prime.get_constant().equals(&E3.get_constant()) != 0);
+            assert!(
+                EA_prime.get_constant().equals(&E3.get_constant()) != 0,
+                "{} + {} = {}",
+                EA_prime.get_constant(),
+                E3.get_constant(),
+                EA_prime.get_constant() + E3.get_constant()
+            );
+            if (EA_prime.get_constant() + E3.get_constant()) == Fq::ZERO {
+                ()
+            }
             (P1, P3)
         } else {
             assert!(EA_prime.get_constant().equals(&E4.get_constant()) != 0);
