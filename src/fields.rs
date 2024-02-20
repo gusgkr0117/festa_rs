@@ -468,7 +468,11 @@ pub mod FpFESTAExt {
     pub const M1: [u32; 5] = [0x6FC3B771, 0xCA5A2369, 0xB11FABF6, 0x232ED4F9, 0x00001121];
     pub const M2: [u32; 3] = [0x3A8A70CD, 0x69735CD2, 0x52C628EA];
 
-    pub const L_POWER: u32 = 632;
+    /// original 632 plus extra 2bits torsion information
+    /// for the fast theta based isogeny operation
+    pub const L_POWER: u32 = 634;
+    /// length of the theta based (2,2)^l-isogeny
+    pub const THETA_ISOGENY_LENGTH: u32 = 632;
 
     /// order of the torsion basis
     pub const BASIS_ORDER: [u32; 41] = [
