@@ -478,9 +478,35 @@ impl FESTACrypto {
 mod tests {
     use std::time::Instant;
 
+    use crate::ecFESTA::CurveIsomorphism;
+
     use super::*;
     use num_bigint::RandBigInt;
     use rand::thread_rng;
+
+    #[test]
+    fn isomorphism_test() {
+        let A1_str = "64b8e83c0af74fc401fd47b4136314a752e23263c7b9a2028427c384b3e2799fb87837d7e28d8eb2d226eb496afe34cd5dc1c043b6b1837a115f9d4e0745430288dd0331157ae4f94d7e9028f0db0e121b3353254cd75a61cd4ef2061a798ab86eea37e4958c58b8b7021eac47aaafe5f534bbdf0ac19b36adfa20e68ceec09a4819bfebd9ec38a308b64ef9eafced4515710467858fcdc17e71dc8f167ba416171300a41683195bada9e84927eda6cea790d01f40c556355b8234f1f7533ba3013d268f6aac60348ea7ca2c1b3378e8a76b7b8f71a908e92c3d2e71346b18b28196e5bed344df21ee47ea52ce937d51773c260d8ebd7ae18984ff451e762be800fc1a030df10d7b8f0edec670ed768af2d016b5e1be6ce08c3d9f44ac8faefd0f81d86206bd3d57214be1030b33be8bd8d138ce897af5b776dc7c74e3714b444bd26d08";
+        let A2_str = "c9a46f8732873fa1b4c86326ce7ede73e256d4e03f098ca1a0d6023d6c86cb0f40a8f8cd655129996aa48854acba1d81f3a8e3bf4271c6728088dbdd138a3d9513979ad2a0eb5139a68378409f835289ebc57de2ee76d0287700269eef26b916f35e3510259c705ca55f788aab445ae29adeeee1a17f168db09bd38ce7ebc2bf5d65b9f6e4e2cf1ca16e7dfa2cec751e74ae362adbd025329bae47a487899f16780b087976a075c323980253e68a64def6ad1735efced056ff6f6c45ef9f56e087c7ee59827b3addcf8332d3dc17fd91bc08ea0f70289b74d307c9385b4f6fe4fbbdff0ad412d01d65a436455d9127dae7fe72688e75a7074d11a45a06ea8e6e1fdae22792b2ba087794c4177b4b5a7d7c9ff15c239d867659b68b558a1cdddf6d191b61c58096e3a108122c2c26f56687fc495f875e4f791df4b4bf659edecc82305604";
+        let (A1, _) = Fq::decode(&hex::decode(A1_str).unwrap());
+        let (A2, _) = Fq::decode(&hex::decode(A2_str).unwrap());
+        let E1 = Curve::new(&A1);
+        let E2 = Curve::new(&A2);
+
+        let order = BigUint::from(2u32).pow(L_POWER);
+        let cofactor = BigUint::from_slice(&BASIS_ORDER) / &order;
+        let (P, Q) = entangled_torsion_basis(&E1, &cofactor);
+
+        let isom = CurveIsomorphism::new(&E1, &E2);
+        let (imP, imQ) = (isom.eval(&P), isom.eval(&Q));
+
+        assert!(E2.on_curve(&imP) && E2.on_curve(&imQ));
+        assert!(E2.mul_big(&imP, &order).isinfinity() != 0);
+        assert!(E2.mul_big(&imQ, &order).isinfinity() != 0);
+
+        assert!(point_has_factored_order(&E2, &imP, &[(2u32, L_POWER)]));
+        assert!(point_has_factored_order(&E2, &imQ, &[(2u32, L_POWER)]));
+    }
 
     #[test]
     fn run_festa_trapdoor() {
