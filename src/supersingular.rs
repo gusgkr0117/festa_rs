@@ -11,6 +11,7 @@ use crate::{
     pairing::weil_pairing,
 };
 use num_bigint::BigUint;
+use rand::thread_rng;
 
 /// Given the factored order D as an input, check if the point has an order D
 pub fn point_has_factored_order(E: &Curve, P: &Point, factored_order: &[(u32, u32)]) -> bool {
@@ -143,7 +144,39 @@ pub fn clear_cofactor(E: &Curve, P: &Point, k: &BigUint, even_power: usize) -> P
     E.mul_big(&Q, &x)
 }
 
-/// Generate a random D-torsion point canonically
+/// Generate a random D-torsion point
+pub fn generate_random_point_order_factored_D(
+    E: &Curve,
+    factored_order: &[(u32, u32)],
+    even_power: usize,
+) -> Point {
+    let order = factored_order
+        .iter()
+        .fold(BigUint::from(1u32), |m, (l, e)| {
+            m * BigUint::from(*l).pow(*e)
+        });
+    let cofactor = BigUint::from_slice(&BASIS_ORDER) / &order;
+    let mut rng = thread_rng();
+
+    for _ in 0..1000 {
+        let random_point = E.rand_point(&mut rng);
+        let torsion_point = clear_cofactor(E, &random_point, &cofactor, even_power);
+
+        if torsion_point.isinfinity() != 0 {
+            continue;
+        }
+
+        if !point_has_factored_order(E, &torsion_point, factored_order) {
+            continue;
+        }
+
+        return torsion_point;
+    }
+
+    Point::INFINITY
+}
+
+/// Generate a D-torsion point canonically
 pub fn generate_point_order_factored_D(
     E: &Curve,
     factored_order: &[(u32, u32)],
@@ -291,8 +324,13 @@ pub fn compute_canonical_kernel(
     imP: &Point,
     imQ: &Point,
     factored_D: &[(u32, u32)],
+    basis: Option<(Point, Point)>,
 ) -> BigUint {
-    let (P, Q) = torsion_basis(&E, factored_D, L_POWER as usize);
+    let (P, Q) = match basis {
+        Some(x) => x,
+        None => torsion_basis(&E, factored_D, L_POWER as usize),
+    };
+
     let order = factored_D.iter().fold(BigUint::from(1u32), |r, (l, e)| {
         r * BigUint::from(*l).pow(*e)
     });
@@ -337,7 +375,8 @@ pub fn random_isogeny_x_only(
     }
 
     for _ in 0..steps {
-        let kernel_point = generate_point_order_factored_D(&domain_curve, &D, L_POWER as usize);
+        let kernel_point =
+            generate_random_point_order_factored_D(&domain_curve, &D, L_POWER as usize);
         let mut phi = factored_kummer_isogeny(&domain_curve, &kernel_point, &one_step_degree);
         domain_curve = phi.last().expect("phi is empty").get_codomain();
         isogeny_list.append(&mut phi);
