@@ -787,6 +787,35 @@ macro_rules! define_ec_core {
             }
         }
 
+        #[derive(Clone)]
+        pub struct CurveIsomorphism {
+            u: Fq,
+            v: Fq,
+            w: Fq,
+        }
+
+        impl CurveIsomorphism {
+            pub fn new(domain: &Curve, codomain: &Curve) -> Self {
+                debug_assert_eq!(
+                    domain.j_invariant(),
+                    codomain.j_invariant(),
+                    "Given curves are not isomorphic!"
+                );
+                let (A2, A1) = (domain.get_constant(), codomain.get_constant());
+                let v = (A1.square() + A2.square().mul2() - Fq::THREE.square())
+                    / (A1 * (Fq::THREE - A2.square()));
+                let u = (Fq::THREE * v + A1) / A2;
+                let w = (u * u.square()).sqrt().0;
+                CurveIsomorphism { u, v, w }
+            }
+
+            pub fn eval(&self, P: &Point) -> Point {
+                let (Px, Py) = P.to_xy();
+                let imP = Point::new_xy(&(self.u * Px + self.v), &(self.w * Py));
+                imP
+            }
+        }
+
         #[derive(Clone, Copy, Debug)]
         pub struct CouplePoint {
             P1: Point,
