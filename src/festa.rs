@@ -197,6 +197,7 @@ impl TrapdoorOutput {
     }
 }
 
+#[derive(Debug)]
 pub struct TrapdoorInput {
     s1: BigUint,
     s2: BigUint,
@@ -214,6 +215,15 @@ impl TrapdoorInput {
 
     pub fn extract(&self) -> (BigUint, BigUint, (BigUint, BigUint)) {
         (self.s1.clone(), self.s2.clone(), self.diagmatB.clone())
+    }
+}
+
+impl PartialEq for TrapdoorInput {
+    fn eq(&self, other: &Self) -> bool {
+        self.s1 == other.s1
+            && self.s2 == other.s2
+            && self.diagmatB.0 == other.diagmatB.0
+            && self.diagmatB.1 == other.diagmatB.1
     }
 }
 
