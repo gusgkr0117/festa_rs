@@ -77,6 +77,11 @@ macro_rules! define_ec_core {
                 (self.X, self.Z)
             }
 
+            /// Returns the X, Y and Z coordinates of the projective point
+            pub fn to_xyz(self) -> (Fq, Fq, Fq) {
+                (self.X, self.Y, self.Z)
+            }
+
             /// Copy rhs into self if ctl == 0xFFFFFFFF.
             /// Do nothing is ctl == 0x00000000.
             /// ctl MUST be either 0xFFFFFFFF or 0x00000000.
