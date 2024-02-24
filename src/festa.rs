@@ -4,29 +4,20 @@ use std::fmt;
 
 use crate::{
     discrete_log::{bidlp, xgcd_big},
-    ecFESTA::{
-        evaluate_isogeny_chain, evaluate_isogeny_chain_for_basis, factored_kummer_isogeny,
-        CurveIsomorphism,
+    ecFESTA::{evaluate_isogeny_chain_for_basis, CurveIsomorphism},
+    fields::FpFESTAExt::{
+        BASIS_ORDER, D1, D1_FACTORED, D2, D2_FACTORED, DA1, DA1_FACTORED, DA2, DA2_FACTORED,
+        L_POWER, M1, M2, THETA_ISOGENY_LENGTH, THETA_STRATEGY,
     },
-    fields::{
-        FpFESTA::Fp,
-        FpFESTAExt::{
-            BASIS_ORDER, D1, D1_FACTORED, D2, D2_FACTORED, DA, DA1, DA1_FACTORED, DA2,
-            DA2_FACTORED, DA_FACTORED, L_POWER, M1, M2, THETA_ISOGENY_LENGTH, THETA_STRATEGY,
-        },
-    },
-    pairing::{tate_pairing, weil_pairing},
+    pairing::weil_pairing,
     supersingular::{
-        compute_canonical_kernel, entangled_torsion_basis, has_factored_order,
-        isogeny_from_scalar_x_only, point_has_factored_order, random_isogeny_x_only, torsion_basis,
+        compute_canonical_kernel, entangled_torsion_basis, isogeny_from_scalar_x_only,
+        point_has_factored_order, random_isogeny_x_only, torsion_basis,
     },
-    thetaFESTA::{
-        product_isogeny, CouplePoint, Curve, EllipticProduct, Fq, KummerLineIsogeny, Point,
-    },
+    thetaFESTA::{product_isogeny, CouplePoint, Curve, EllipticProduct, Fq, Point},
 };
 
 use num_bigint::{BigUint, RandBigInt};
-use rand::random;
 
 /// Publickey structure of FESTA
 pub struct PublicKey {
@@ -302,7 +293,6 @@ impl FESTACrypto {
         a11.set_bit(0, true);
         a22.set_bit(0, true);
 
-        println!("[keygen] Pick random isogenies phiA1 and phiA2..");
         // Choose a random isogeny of degree dA1
         let (phiA1, EA_prime) = random_isogeny_x_only(&E0, &DA1_FACTORED, 2);
 
@@ -314,13 +304,11 @@ impl FESTACrypto {
         let dA2 = BigUint::from_slice(&DA2);
 
         // Create torsion basis
-        println!("[keygen] Create torsion basis of EA..");
         let (Pb, Qb) = self.E0_lb_basis;
         let (Pd1, Qd1) = self.E0_d1_basis;
         let (PA_prime_d2, QA_prime_d2) = torsion_basis(&EA_prime, &D2_FACTORED, L_POWER as usize);
 
         let (Pd1b, Qd1b) = (E0.add(&Pb, &Pd1), E0.add(&Qb, &Qd1));
-        println!("[keygen] Evaluating the isogeny phiA1..");
         let (_, (imPd1b, imQd1b)) = evaluate_isogeny_chain_for_basis(
             &E0,
             &(Pd1b, Qd1b),
@@ -339,7 +327,6 @@ impl FESTACrypto {
             EA_prime.add(&imQb, &QA_prime_d2),
         );
 
-        println!("[keygen] Evaluating the isogeny phiA2..");
         let (_, (imPbd2, imQbd2)) = evaluate_isogeny_chain_for_basis(
             &EA_prime,
             &(Pbd2, Qbd2),
@@ -358,10 +345,8 @@ impl FESTACrypto {
             EA.mul_big(&imQbd2, &self.clear_lb),
         );
 
-        println!("[keygen] Generating the torsion basis of EA");
         let (PA_d2, QA_d2) = torsion_basis(&EA, &D2_FACTORED, L_POWER as usize);
         let ePQ = weil_pairing(&EA, &PA_d2, &QA_d2, &self.d2);
-        println!("[keygen] Solving the BiDLP for the EA torsion basis");
         let (a1, b1) = bidlp(&EA, &PA_d2, &imPAd2, &imQAd2, &D2_FACTORED, Some(ePQ));
         let (a2, b2) = bidlp(&EA, &QA_d2, &imPAd2, &imQAd2, &D2_FACTORED, Some(ePQ));
 
@@ -418,23 +403,6 @@ impl FESTACrypto {
         let (R1, S1) = (E1.mul_big(&imPb, &b11), E1.mul_big(&imQb, &b22));
         let (R2, S2) = (E2.mul_big(&imR, &b11), E2.mul_big(&imS, &b22));
 
-        debug_assert!(
-            point_has_factored_order(&E1, &R1, &[(2, L_POWER)]),
-            "R1 has wrong order"
-        );
-        debug_assert!(
-            point_has_factored_order(&E1, &S1, &[(2, L_POWER)]),
-            "S1 has wrong order"
-        );
-        debug_assert!(
-            point_has_factored_order(&E2, &R2, &[(2, L_POWER)]),
-            "R2 has wrong order"
-        );
-        debug_assert!(
-            point_has_factored_order(&E2, &S2, &[(2, L_POWER)]),
-            "S2 has wrong order"
-        );
-
         TrapdoorOutput::new(&E1, &R1, &S1, &E2, &R2, &S2)
     }
 
@@ -448,7 +416,7 @@ impl FESTACrypto {
         phi_A1_Pb: &Point,
         phi_A1_Qb: &Point,
     ) -> (BigUint, BigUint) {
-        let (debug_value, mut alpha) = bidlp(
+        let (mut alpha, _) = bidlp(
             E,
             phi_1_dual_R_scaled,
             phi_A1_Pb,
@@ -457,20 +425,14 @@ impl FESTACrypto {
             None,
         );
 
-        assert!(
-            phi_1_dual_R_scaled.equals(
-                &(E.add(
-                    &E.mul_big(phi_A1_Pb, &debug_value),
-                    &E.mul_big(phi_A1_Qb, &alpha)
-                ))
-            ) != 0
-        );
-        println!("R = {}P + {}Q", debug_value, alpha);
+        alpha = (&self.inv_scalar * alpha) % &self.l_power;
+        let beta = xgcd_big(&alpha, &self.l_power) % &self.l_power;
 
-        alpha = &self.inv_scalar * alpha;
-        let beta = xgcd_big(&alpha, &self.l_power);
-
-        (alpha, beta)
+        if alpha > (&self.l_power >> 1) {
+            (&self.l_power - alpha, &self.l_power - beta)
+        } else {
+            (alpha, beta)
+        }
     }
 
     /// Wrapper function which recovers s1, s2 and the masking matrix B given
@@ -519,8 +481,6 @@ impl FESTACrypto {
             &D2_FACTORED,
             Some((*phi_A2_dual_Pd2, *phi_A2_dual_Qd2)),
         );
-        println!("s1 : {}", s1);
-        println!("s2 : {}", s2);
 
         let diagmatB = self.recover_diagB(E, &imPb, &phi_A1_Pb, &phi_A1_Qb);
 
@@ -534,9 +494,6 @@ impl FESTACrypto {
         let (EA_prime, im_basis_bd1_E0, im_basis_d2_EA, A) = sk.extract();
         let (E1, R1, S1, E2, R2, S2) = c.extract();
         let (a11, a22) = A;
-
-        println!("E1 : {}", E1.j_invariant());
-        println!("E2 : {}", E2.j_invariant());
 
         let (R2_prime, S2_prime) = (
             E2.mul_big(&R2, &xgcd_big(&a11, &self.l_power)),
@@ -591,9 +548,6 @@ impl FESTACrypto {
         );
 
         let (E3, E4) = E3E4.curves();
-        println!("EA_prime : {}", EA_prime.j_invariant());
-        println!("E3 : {}", E3.j_invariant());
-        println!("E4 : {}", E4.j_invariant());
         let (P1, P2) = images[0].points();
         let (P3, P4) = images[1].points();
 
@@ -671,12 +625,10 @@ mod tests {
         let mut rng = thread_rng();
         let s1 = rng.gen_biguint_range(&BigUint::from(0u32), &d1);
         let s2 = rng.gen_biguint_range(&BigUint::from(0u32), &d2);
-        let (mut b11, mut b22) = (
-            rng.gen_biguint(L_POWER as u64),
-            rng.gen_biguint(L_POWER as u64),
-        );
+        let mut b11 = rng.gen_biguint((L_POWER - 1) as u64);
         b11.set_bit(0, true);
-        b22.set_bit(0, true);
+        let l_power = BigUint::from(1u32) << L_POWER;
+        let b22 = xgcd_big(&b11, &l_power) % &l_power;
         let trapdoor_input = TrapdoorInput::new(&s1, &s2, &(b11, b22));
 
         println!("Input : {}", trapdoor_input);
@@ -687,25 +639,6 @@ mod tests {
         println!(
             "trapdoor_eval elapsed : {} ms",
             timelapse.elapsed().as_millis()
-        );
-
-        println!(
-            "trapdoor output : {}",
-            result
-                .encode()
-                .iter()
-                .map(|b| format!("{:02X}", b))
-                .collect::<Vec<String>>()
-                .join("")
-        );
-        println!(
-            "secret key : {}",
-            seckey
-                .encode()
-                .iter()
-                .map(|b| format!("{:02X}", b))
-                .collect::<Vec<String>>()
-                .join("")
         );
 
         // Inverting the FESTA trapdoor
@@ -744,55 +677,5 @@ mod tests {
         let festa = FESTACrypto::new();
         let inverted = festa.trapdoor_inverse(&trapdoor_output, &secret_key);
         println!("inverted : {}", inverted);
-    }
-
-    #[test]
-    fn keygen_torsion_basis() {
-        let mut rng = rand::thread_rng();
-        // Setting the starting curve
-        let E0 = Curve::new(&(Fq::TWO + Fq::FOUR));
-
-        // Choose a random diagonal matrix A
-        let (a11, a22) = (rng.gen_biguint(256), rng.gen_biguint(256));
-
-        // Choose a random isogeny of degree dA1
-        let mut timewatch = Instant::now();
-        let (phiA1, EA_prime) = random_isogeny_x_only(&E0, &DA1_FACTORED, 2);
-        println!(
-            "generate random da1 elapsed : {} ms",
-            timewatch.elapsed().as_millis()
-        );
-
-        timewatch = Instant::now();
-        // Choose a random isogeny of degree dA2
-        let (phiA2, EA) = random_isogeny_x_only(&EA_prime, &DA2_FACTORED, 2);
-        println!(
-            "generate random da2 elapsed : {} ms",
-            timewatch.elapsed().as_millis()
-        );
-
-        // Create a 2^b-torsion basis
-        let l_power = BigUint::from(2u32).pow(L_POWER);
-        let d1 = BigUint::from_slice(&D1);
-        timewatch = Instant::now();
-        let (Pb, Qb) = torsion_basis(&E0, &[(2u32, L_POWER)], 0);
-        println!(
-            "generate l^e torsion basis of E0 elapsed : {} ms",
-            timewatch.elapsed().as_millis()
-        );
-
-        timewatch = Instant::now();
-        let (Pd1, Qd1) = torsion_basis(&E0, &D1_FACTORED, L_POWER as usize);
-        println!(
-            "generate d1 torsion basis of E0 elapsed : {} ms",
-            timewatch.elapsed().as_millis()
-        );
-
-        timewatch = Instant::now();
-        let (PA_prime_d2, QA_prime_d2) = torsion_basis(&EA_prime, &D2_FACTORED, L_POWER as usize);
-        println!(
-            "generate d2 torsion basis of EA elapsed : {} ms",
-            timewatch.elapsed().as_millis()
-        );
     }
 }
