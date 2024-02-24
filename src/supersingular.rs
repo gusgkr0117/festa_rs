@@ -1,10 +1,17 @@
 //! Functions for the supersingular curves
+use std::collections::HashMap;
+
 use crate::{
+    discrete_log::{bidlp, compute_crt, xgcd_big},
     ecFESTA::{factored_kummer_isogeny, Curve, Fq, KummerLineIsogeny, Point},
-    fields::FpFESTAExt::{BASIS_ORDER, L_POWER},
-    pairing::tate_pairing,
+    fields::{
+        FpFESTA::Fp,
+        FpFESTAExt::{BASIS_ORDER, BIGUINT_MODULUS, L_POWER},
+    },
+    pairing::weil_pairing,
 };
 use num_bigint::BigUint;
+use rand::thread_rng;
 
 /// Given the factored order D as an input, check if the point has an order D
 pub fn point_has_factored_order(E: &Curve, P: &Point, factored_order: &[(u32, u32)]) -> bool {
@@ -137,7 +144,39 @@ pub fn clear_cofactor(E: &Curve, P: &Point, k: &BigUint, even_power: usize) -> P
     E.mul_big(&Q, &x)
 }
 
-/// Generate a random D-torsion point canonically
+/// Generate a random D-torsion point
+pub fn generate_random_point_order_factored_D(
+    E: &Curve,
+    factored_order: &[(u32, u32)],
+    even_power: usize,
+) -> Point {
+    let order = factored_order
+        .iter()
+        .fold(BigUint::from(1u32), |m, (l, e)| {
+            m * BigUint::from(*l).pow(*e)
+        });
+    let cofactor = BigUint::from_slice(&BASIS_ORDER) / &order;
+    let mut rng = thread_rng();
+
+    for _ in 0..1000 {
+        let random_point = E.rand_point(&mut rng);
+        let torsion_point = clear_cofactor(E, &random_point, &cofactor, even_power);
+
+        if torsion_point.isinfinity() != 0 {
+            continue;
+        }
+
+        if !point_has_factored_order(E, &torsion_point, factored_order) {
+            continue;
+        }
+
+        return torsion_point;
+    }
+
+    Point::INFINITY
+}
+
+/// Generate a D-torsion point canonically
 pub fn generate_point_order_factored_D(
     E: &Curve,
     factored_order: &[(u32, u32)],
@@ -188,7 +227,7 @@ pub fn torsion_basis(E: &Curve, factored_D: &[(u32, u32)], even_power: usize) ->
             continue;
         }
 
-        let ePQ = tate_pairing(E, &P, &Q, &D);
+        let ePQ = weil_pairing(E, &P, &Q, &D);
         //check if the order of ePQ is equal to D
         if !has_factored_order(ePQ, factored_D) {
             continue;
@@ -197,6 +236,127 @@ pub fn torsion_basis(E: &Curve, factored_D: &[(u32, u32)], even_power: usize) ->
     }
 
     (Point::INFINITY, Point::INFINITY)
+}
+
+/// Optimized algorithm for generating k*2^l torsion basis
+pub fn entangled_torsion_basis(E: &Curve, cofactor: &BigUint) -> (Point, Point) {
+    fn precompute_elligator_tables() -> (Vec<(Fq, Fq)>, Vec<(Fq, Fq)>) {
+        let u = Fq::ZETA * Fq::TWO;
+        let mut T1 = Vec::<(Fq, Fq)>::new();
+        let mut T2 = Vec::<(Fq, Fq)>::new();
+        let mut r = Fq::ONE;
+        for _ in 0..30 {
+            let v = (Fq::ONE + &u * &r.square()).invert();
+            if v.legendre() == 1 {
+                T2.push((r, v));
+            } else {
+                T1.push((r, v));
+            }
+            r += Fq::ONE;
+        }
+
+        (T1, T2)
+    }
+
+    let p = BigUint::from_slice(&BIGUINT_MODULUS);
+    let p_sqrt = (p + BigUint::from(1u32)) / BigUint::from(4u32);
+    let u = Fq::ZETA * Fq::TWO;
+    let u0 = Fq::ONE + Fq::ZETA;
+
+    let (TQNR, TQR) = precompute_elligator_tables();
+
+    // Pick the lookup table depending on whether
+    // A = a + ib is a quadratic residue or quadratic nonresidue
+    let A = E.get_constant();
+    let T = match A.legendre() {
+        1i32 => TQNR,
+        -1i32 => TQR,
+        _ => panic!("invalid curve for entangled torsion basis algorithm"),
+    };
+
+    // Look through the table to find point with
+    // rational (x, y)
+    let mut y: Option<Fq> = None;
+    let (mut s, mut c, mut d): (Fp, Fp, Fp) = (Fp::ONE, Fp::ONE, Fp::ONE);
+    let (mut x, mut r) = (Fq::ONE, Fq::ONE);
+    for (ri, v) in T.iter() {
+        (r, x) = (*ri, -A * v);
+        let t = x * (x.square() + A * x + Fq::ONE);
+
+        // break when we find rational y: t = y^2
+        (c, d) = t.get_coeff();
+        let z = c.square() + d.square();
+        s = z.pow_big(&p_sqrt);
+        if s.square().equals(&z) != 0 {
+            y = Some(t.sqrt().0);
+            break;
+        }
+    }
+
+    if y.is_none() {
+        panic!("Never found a y-coordinate, increase the lookup table size");
+    }
+
+    let z = (&c + &s).half();
+    let alpha = z.pow_big(&p_sqrt);
+    let beta = d / (&alpha + &alpha);
+
+    let y = match alpha.square().equals(&z) != 0 {
+        true => Fq::new(&alpha, &beta),
+        false => -Fq::new(&beta, &alpha),
+    };
+
+    let S1 = Point::new_xy(&x, &y);
+
+    let (s21, s22) = ((u * r.square() * x), (u0 * r * y));
+
+    let S2 = Point::new_xy(&s21, &s22);
+
+    (E.mul_big(&S1, &cofactor), E.mul_big(&S2, &cofactor))
+}
+
+/// Algorithm 6 of the FESTA paper
+/// Given points R and S
+/// Find the integer s such that <R, S> = <P + [s]Q>
+/// Cautious : D must be odd number
+pub fn compute_canonical_kernel(
+    E: &Curve,
+    imP: &Point,
+    imQ: &Point,
+    factored_D: &[(u32, u32)],
+    basis: Option<(Point, Point)>,
+) -> BigUint {
+    let (P, Q) = match basis {
+        Some(x) => x,
+        None => torsion_basis(&E, factored_D, L_POWER as usize),
+    };
+
+    let order = factored_D.iter().fold(BigUint::from(1u32), |r, (l, e)| {
+        r * BigUint::from(*l).pow(*e)
+    });
+    let ePQ = weil_pairing(&E, &P, &Q, &order);
+    let (a1, b1) = bidlp(&E, imP, &P, &Q, factored_D, Some(ePQ));
+    let (a2, b2) = bidlp(&E, imQ, &P, &Q, factored_D, Some(ePQ));
+
+    let mut t1_list = Vec::new();
+    let mut t2_list = Vec::new();
+
+    for (l, e) in factored_D.iter() {
+        let di = BigUint::from(*l).pow(*e);
+        let (t1, t2) = if &a1 % l == BigUint::from(0u32) {
+            (BigUint::from(0u32), xgcd_big(&a2, &di))
+        } else {
+            (xgcd_big(&a1, &di), BigUint::from(0u32))
+        };
+
+        t1_list.push(t1);
+        t2_list.push(t2);
+    }
+
+    let t1 = compute_crt(&t1_list, factored_D);
+    let t2 = compute_crt(&t2_list, factored_D);
+
+    (t1 * b1 + t2 * b2) % order
 }
 
 /// Generate a random isogeny
@@ -215,7 +375,8 @@ pub fn random_isogeny_x_only(
     }
 
     for _ in 0..steps {
-        let kernel_point = generate_point_order_factored_D(&domain_curve, &D, L_POWER as usize);
+        let kernel_point =
+            generate_random_point_order_factored_D(&domain_curve, &D, L_POWER as usize);
         let mut phi = factored_kummer_isogeny(&domain_curve, &kernel_point, &one_step_degree);
         domain_curve = phi.last().expect("phi is empty").get_codomain();
         isogeny_list.append(&mut phi);
@@ -253,6 +414,7 @@ mod tests {
     use crate::{
         ecFESTA::Fq,
         fields::FpFESTAExt::{D1, D1_FACTORED, D2, D2_FACTORED},
+        pairing::weil_pairing,
     };
 
     use super::*;
@@ -295,28 +457,58 @@ mod tests {
     fn compute_torsion_basis() {
         let test_curve = Curve::new(&(Fq::TWO + Fq::FOUR));
 
-        let (P, Q) = torsion_basis(&test_curve, &[(71, 3)], L_POWER as usize);
-        let (R, S) = (
-            test_curve.mul_small(&P, 71u64),
-            test_curve.mul_small(&Q, 71u64),
-        );
+        let (P, Q) = torsion_basis(&test_curve, &[(2, L_POWER)], 0 as usize);
 
-        println!("P : {}", P);
-        println!("Q : {}", Q);
+        assert!(point_has_factored_order(&test_curve, &P, &[(2, L_POWER)]));
+        assert!(point_has_factored_order(&test_curve, &Q, &[(2, L_POWER)]));
 
-        println!(
-            "e(R,S) = {}",
-            tate_pairing(&test_curve, &R, &S, &BigUint::from(5041u32)).pow_small(71u32)
-        );
+        let l_power = BigUint::from(2u32).pow(L_POWER);
+        let ePQ = weil_pairing(&test_curve, &P, &Q, &l_power);
+
+        println!("e(P,Q)^r = {}", ePQ.pow_big(&l_power).pow_small(1024u32));
+
+        // println!("P = {P}");
+        // println!("Q = {Q}");
     }
 
     #[test]
     fn compute_l_power_torsion_basis() {
         let test_curve = Curve::new(&(Fq::TWO + Fq::FOUR));
-        let degree: [(u32, u32); 1] = [(2u32, L_POWER)];
-        let (P, Q) = torsion_basis(&test_curve, &degree, 0);
+        let l_power = BigUint::from(2u32).pow(L_POWER);
+        let basis_order = BigUint::from_slice(&BASIS_ORDER);
+        let cofactor = &basis_order / &l_power;
+        let (P, Q) = entangled_torsion_basis(&test_curve, &cofactor);
         println!("P : {}", P);
         println!("Q : {}", Q);
+
+        assert_ne!(
+            test_curve.mul_big(&P, &l_power).isinfinity(),
+            0,
+            "P has wrong order"
+        );
+        assert_ne!(
+            test_curve.mul_big(&Q, &basis_order).isinfinity(),
+            0,
+            "Q has wrong order"
+        );
+
+        let cofactor = BigUint::from(2u32).pow(L_POWER - 11);
+        let (R, S) = (
+            test_curve.mul_big(&P, &cofactor),
+            test_curve.mul_big(&Q, &cofactor),
+        );
+        // Test if two given points are independent
+        for (i, j) in (1..2048).zip(1..2048) {
+            if test_curve
+                .mul_small(&R, i)
+                .equals(&test_curve.mul_small(&S, j))
+                != 0
+            {
+                println!("{j}S = {i}R");
+                return;
+            }
+        }
+        println!("R and S are linearly independent");
     }
 
     #[test]

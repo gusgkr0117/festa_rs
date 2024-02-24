@@ -22,6 +22,7 @@ macro_rules! define_fp2_core {
         use num_bigint::{BigInt, Sign};
         use rand_core::{CryptoRng, RngCore};
         use std::fmt;
+        use std::hash::{Hash, Hasher};
 
         /// GF(p^2) implementation.
         #[derive(Clone, Copy, Debug)]
@@ -74,6 +75,10 @@ macro_rules! define_fp2_core {
 
             pub const fn new(re: &Fp, im: &Fp) -> Self {
                 Self { x0: *re, x1: *im }
+            }
+
+            pub fn get_coeff(&self) -> (Fp, Fp) {
+                (self.x0, self.x1)
             }
 
             #[inline]
@@ -1073,6 +1078,25 @@ macro_rules! define_fp2_core {
             #[inline(always)]
             fn sub_assign(&mut self, other: &Fp2) {
                 self.set_sub(other);
+            }
+        }
+
+        impl PartialEq for Fp2 {
+            #[inline(always)]
+            fn eq(&self, other: &Fp2) -> bool {
+                self.equals(other) != 0
+            }
+        }
+
+        impl Eq for Fp2 {}
+
+        impl Hash for Fp2 {
+            fn hash<H>(&self, state: &mut H)
+            where
+                H: Hasher,
+            {
+                self.x0.hash(state);
+                self.x1.hash(state);
             }
         }
     };

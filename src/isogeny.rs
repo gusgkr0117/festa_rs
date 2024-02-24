@@ -9,6 +9,7 @@
 
 macro_rules! define_isogeny_structure {
     () => {
+        use crate::pairing::weil_pairing;
         /// Computation of isogenies between Kummer lines using x-only formula by Costello-Hisil-Renes
         /// This is used to compute only short prime degree isogenies
         /// To compute the composite degree isogeny, use KummerLineIsogenyChain
@@ -159,6 +160,32 @@ macro_rules! define_isogeny_structure {
             (isog_chain.last().unwrap().get_codomain(), Q)
         }
 
+        /// Given the d-torsion basis <P, Q> = E[n]
+        /// compute the image of the torsion basis up to the overall sign : ±(phi(P), phi(Q))
+        pub fn evaluate_isogeny_chain_for_basis(
+            domain: &Curve,
+            basis: &(Point, Point),
+            isog_chain: &Vec<KummerLineIsogeny>,
+            torsion_order: &BigUint,
+            isogeny_degree: &BigUint,
+        ) -> (Curve, (Point, Point)) {
+            let (P, Q) = *basis;
+            let ((codomain, imP), (_, mut imQ)) = (
+                evaluate_isogeny_chain(domain, &P, isog_chain),
+                evaluate_isogeny_chain(domain, &Q, isog_chain),
+            );
+
+            let pair_E0 = weil_pairing(domain, &P, &Q, torsion_order);
+            let pair_E1 = weil_pairing(&codomain, &imP, &imQ, torsion_order);
+
+            // if e(P, Q)^n != e(phi(P), phi(Q))
+            if pair_E0.pow_big(isogeny_degree).equals(&pair_E1) == 0 {
+                imQ = -imQ;
+            }
+
+            (codomain, (imP, imQ))
+        }
+
         /// Computes a composite degree isogeny
         /// Given a kernel point P of degree l1^e1 * ... * lt^et
         /// compute the chain of Kummer isogenies
@@ -245,53 +272,132 @@ pub(crate) use define_isogeny_structure;
 #[cfg(test)]
 mod tests {
     use crate::{
-        ecFESTA::{evaluate_isogeny_chain, factored_kummer_isogeny},
+        discrete_log::{bidlp, ph_dlp},
+        ecFESTA::{
+            evaluate_isogeny_chain, evaluate_isogeny_chain_for_basis, factored_kummer_isogeny,
+            KummerLineIsogeny,
+        },
+        fields::FpFESTAExt::{D1, D1_FACTORED, L_POWER},
+        isogeny,
+        pairing::weil_pairing,
+        supersingular::{
+            entangled_torsion_basis, generate_point_order_factored_D, has_factored_order,
+            point_has_factored_order, torsion_basis,
+        },
         thetaFESTA::{Curve, Fq},
     };
 
     use crate::fields::FpFESTAExt::BASIS_ORDER;
     use num_bigint::BigUint;
 
-    use rand::prelude::*;
-    use rand_chacha::ChaCha20Rng;
+    #[test]
+    fn evaluate_isogeny_for_basis() {
+        let start_curve = Curve::new(&(Fq::TWO + Fq::FOUR));
+        let basis_order = BigUint::from_slice(&BASIS_ORDER);
+        let l_power = BigUint::from(2u32).pow(L_POWER);
+        let isogeny_degree_factored = [(2309u32, 1u32), (631u32, 1u32)];
+        let isogeny_degree = isogeny_degree_factored
+            .iter()
+            .fold(BigUint::from(1u32), |r, (l, e)| {
+                r * BigUint::from(*l).pow(*e)
+            });
+        let cofactor = &basis_order / &l_power;
+        let (P, Q) = entangled_torsion_basis(&start_curve, &cofactor);
+        let kernel = generate_point_order_factored_D(
+            &start_curve,
+            &isogeny_degree_factored,
+            L_POWER as usize,
+        );
+        let phi = factored_kummer_isogeny(&start_curve, &kernel, &isogeny_degree_factored);
+        let ((codomain, imP), (_, mut imQ)) = (
+            evaluate_isogeny_chain(&start_curve, &P, &phi),
+            evaluate_isogeny_chain(&start_curve, &Q, &phi),
+        );
+
+        let pair_E0 = weil_pairing(&start_curve, &P, &Q, &l_power);
+        let pair_E1 = weil_pairing(&codomain, &imP, &imQ, &l_power);
+        let pair_E0_d = pair_E0.pow_big(&isogeny_degree);
+
+        println!("pair_E0^lb = {}", pair_E0.pow_big(&l_power));
+        assert!(pair_E0.pow_big(&l_power).equals(&Fq::ONE) != 0);
+        assert!(pair_E1.pow_big(&l_power).equals(&Fq::ONE) != 0);
+        assert!(has_factored_order(pair_E0, &[(2, L_POWER)]));
+        assert!(has_factored_order(pair_E1, &[(2, L_POWER)]));
+
+        println!("pair_E0^d = {}", pair_E0_d);
+        println!("pair_E1 = {}", pair_E1);
+    }
 
     #[test]
     fn compute_isogeny() {
         let start_curve = Curve::new(&(Fq::TWO + Fq::FOUR));
-        let mut rng = ChaCha20Rng::from_entropy();
-        let randP = start_curve.rand_point(&mut rng);
-        let randQ = start_curve.rand_point(&mut rng);
-        let basis_order = BigUint::from_slice(&BASIS_ORDER) * BigUint::from(2u32);
+        let basis_order = BigUint::from_slice(&BASIS_ORDER);
 
-        let factored_order: [(u32, u32); 3] = [(2729, 2), (3359, 1), (4409, 1)];
-        let new_order = BigUint::from(2729u32)
-            * BigUint::from(2729u32)
-            * BigUint::from(3359u32)
-            * BigUint::from(4409u32);
+        let factored_D = [(2729u32, 1u32)];
+        let factored_order1 = [(2309u32, 1u32)];
+        let factored_order2 = [(631u32, 1u32)];
+
+        let factored_whole = [(2309u32, 1u32), (631u32, 1u32)];
+        let reversed_factored_whole = [(631u32, 1u32), (2309u32, 1u32)];
+
+        let new_order1 = factored_order1
+            .iter()
+            .fold(BigUint::from(1u32), |r, (l, e)| {
+                r * BigUint::from(*l).pow(*e)
+            });
+        let new_order2 = factored_order2
+            .iter()
+            .fold(BigUint::from(1u32), |r, (l, e)| {
+                r * BigUint::from(*l).pow(*e)
+            });
+        let total_order = factored_whole
+            .iter()
+            .fold(BigUint::from(1u32), |r, (l, e)| {
+                r * BigUint::from(*l).pow(*e)
+            });
 
         assert!(
-            (&basis_order % &new_order) == BigUint::from(0u32),
+            (&basis_order % &new_order1) == BigUint::from(0u32),
+            "The new order is wrong"
+        );
+        assert!(
+            (&basis_order % &new_order2) == BigUint::from(0u32),
             "The new order is wrong"
         );
 
-        let cofactor = &basis_order / &new_order;
+        let (P, Q) = torsion_basis(&start_curve, &factored_whole, L_POWER as usize);
+        let R = generate_point_order_factored_D(&start_curve, &factored_D, L_POWER as usize);
 
-        let kernP = start_curve.mul_big(&randP, &cofactor);
-        let kernQ = start_curve.mul_big(&randQ, &cofactor);
+        let middle_kernel = start_curve.mul_big(&P, &new_order2);
+        let isog_chain1 = factored_kummer_isogeny(&start_curve, &middle_kernel, &factored_order1);
+        let (middle_curve, imQ1) = evaluate_isogeny_chain(&start_curve, &Q, &isog_chain1);
+        let (_, imP) = evaluate_isogeny_chain(&start_curve, &P, &isog_chain1);
 
-        assert!(start_curve.mul_big(&kernP, &new_order).isinfinity() != 0);
+        assert!(middle_curve.mul_big(&imP, &new_order2).isinfinity() != 0);
+        println!("@0 : {}", middle_curve);
 
-        let isog_chain = factored_kummer_isogeny(&start_curve, &kernP, &factored_order);
-        let (middle_curve, evalQ) = evaluate_isogeny_chain(&start_curve, &kernQ, &isog_chain);
+        let isog_chain2 = factored_kummer_isogeny(&middle_curve, &imP, &factored_order2);
+        let (final_curve, imQ2) = evaluate_isogeny_chain(&middle_curve, &imQ1, &isog_chain2);
+        let (_, imQ2) = evaluate_isogeny_chain(&start_curve, &imQ1, &isog_chain2);
 
-        for isog in isog_chain.iter() {
-            println!("{:#}", isog);
+        assert!(
+            final_curve.on_curve(&imQ2),
+            "phi(R) is not on the codomain curve"
+        );
+        println!("@1 : {}", final_curve);
+
+        let isog_whole = factored_kummer_isogeny(&start_curve, &P, &factored_whole);
+        let (_, im_whole_Q) = evaluate_isogeny_chain(&start_curve, &Q, &isog_whole);
+
+        for (i, isog) in isog_whole.iter().enumerate() {
+            println!("#{i} : {}", isog.get_codomain());
         }
 
-        let isog_chain2 = factored_kummer_isogeny(&middle_curve, &evalQ, &factored_order);
+        let isog_whole_dual =
+            factored_kummer_isogeny(&final_curve, &im_whole_Q, &reversed_factored_whole);
 
-        for isog in isog_chain2.iter() {
-            println!("{:#}", isog);
+        for (i, isog) in isog_whole_dual.iter().enumerate() {
+            println!("#{} : {}", i + 2, isog.get_codomain());
         }
     }
 }

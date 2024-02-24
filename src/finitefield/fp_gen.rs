@@ -51,9 +51,11 @@ macro_rules! define_fp_core {
         };
         use core::convert::TryFrom;
         use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+        use num_bigint::BigUint;
         use num_bigint::{BigInt, Sign};
         use rand_core::{CryptoRng, RngCore};
         use std::fmt;
+        use std::hash::{Hash, Hasher};
 
         /// A finite field element. Contents are opaque.
         /// All functions are constant-time.
@@ -1107,6 +1109,14 @@ macro_rules! define_fp_core {
             }
 
             /// Return this value to the power e (as a new element). Exponent e
+            /// is BigUint type variable encoded in unsigned little-endian
+            pub fn pow_big(self, e: &BigUint) -> Self {
+                let mut x = self;
+                x.set_pow(&e.to_bytes_le(), e.bits() as usize);
+                x
+            }
+
+            /// Return this value to the power e (as a new element). Exponent e
             /// is encoded in unsigned little-endian convention over exactly
             /// ebitlen bits, and starting at the bit offset eoff.
             pub fn pow_ext(self, e: &[u8], eoff: usize, ebitlen: usize) -> Self {
@@ -1824,6 +1834,12 @@ macro_rules! define_fp_core {
             #[inline(always)]
             fn sub_assign(&mut self, other: &Fp) {
                 self.set_sub(other);
+            }
+        }
+
+        impl Hash for Fp {
+            fn hash<H: Hasher>(&self, state: &mut H) {
+                self.0.hash(state);
             }
         }
     };

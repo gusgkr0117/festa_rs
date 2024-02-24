@@ -77,6 +77,11 @@ macro_rules! define_ec_core {
                 (self.X, self.Z)
             }
 
+            /// Returns the X, Y and Z coordinates of the projective point
+            pub fn to_xyz(self) -> (Fq, Fq, Fq) {
+                (self.X, self.Y, self.Z)
+            }
+
             /// Copy rhs into self if ctl == 0xFFFFFFFF.
             /// Do nothing is ctl == 0x00000000.
             /// ctl MUST be either 0xFFFFFFFF or 0x00000000.
@@ -269,6 +274,18 @@ macro_rules! define_ec_core {
                 self.set_xyz_nocheck(P, x, y, z);
                 P.Z.set_cond(&Fq::ZERO, !r);
                 r
+            }
+
+            /// Check if the given point is on this curve
+            pub fn on_curve(self, P: &Point) -> bool {
+                if P.isinfinity() != 0 {
+                    return true;
+                }
+
+                let (x, y) = P.to_xy();
+                y.square()
+                    .equals(&(&x * &(x.square() + self.A * &x + Fq::ONE)))
+                    != 0
             }
 
             /// Get a Point instance set to the provided affine coordinates.
@@ -772,6 +789,35 @@ macro_rules! define_ec_core {
                 }
 
                 None
+            }
+        }
+
+        #[derive(Clone)]
+        pub struct CurveIsomorphism {
+            u: Fq,
+            v: Fq,
+            w: Fq,
+        }
+
+        impl CurveIsomorphism {
+            pub fn new(domain: &Curve, codomain: &Curve) -> Self {
+                debug_assert_eq!(
+                    domain.j_invariant(),
+                    codomain.j_invariant(),
+                    "Given curves are not isomorphic!"
+                );
+                let (A2, A1) = (domain.get_constant(), codomain.get_constant());
+                let v = (A1.square() + A2.square().mul2() - Fq::THREE.square())
+                    / (A1 * (Fq::THREE - A2.square()));
+                let u = (Fq::THREE * v + A1) / A2;
+                let w = (u * u.square()).sqrt().0;
+                CurveIsomorphism { u, v, w }
+            }
+
+            pub fn eval(&self, P: &Point) -> Point {
+                let (Px, Py) = P.to_xy();
+                let imP = Point::new_xy(&(self.u * Px + self.v), &(self.w * Py));
+                imP
             }
         }
 

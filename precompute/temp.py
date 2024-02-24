@@ -1,14 +1,18 @@
-from sympy.ntheory import factorint
+#from sympy.ntheory import factorint
 
 d1 = 3**6 * 19**2 * 29**2 * 37**2 * 83**2 * 139**2 * 167**2 * 251**2 * \
     419**2 * 421**2 * 701**2 * 839**2 * 1009**2 * 1259**2 * 3061**2 * 3779**2
-d2 = 5**4 * 7**3 * 11**2 * 13**2 * 17**2 * 41**2 * 43**2 * 71**3 * 89**2 * \
+d2 = 5**4 * 7**3 * 11**2 * 13**2 * 17**2 * 41**2 * 43**2 * 71**2 * 89**2 * \
     127**2 * 211**2 * 281**2 * 503**2 * 631**2 * \
     2309**2 * 2521**2 * 2647**2 * 2729**2
 dA = 59**2 * 3023**2 * 3359**2 * 4409**2 * 5039**2 * 6299**2 * \
     6719**2 * 9181**2 * 19531**2 * 22679**2 * 41161**2
 dA1 = 59**2 * 6299**2 * 6719**2 * 9181**2
 dA2 = 3023**2 * 3359**2 * 4409**2 * 5039**2 * 19531**2 * 22679**2 * 41161**2
+T1 = d1 * dA1
+T2 = d2 * dA2
+m1 = 1492184945093476592520242083925044182103921
+m2 = 25617331336429939300166693069
 p_array = [
     0xFFFFFFFFFFFFFFFF,
     0xFFFFFFFFFFFFFFFF,
@@ -40,6 +44,7 @@ basis_order = 2**634 * 3**6 * 5**4 * 7**3 * 11**2 * 13**2 * 17**2 * 19**2 * 29**
     421**2 * 503**2 * 631**2 * 701**2 * 839**2 * 1009**2 * 1259**2 * 2309**2 * 2521**2 * 2647**2 * \
     2729**2 * 3023 * 3061**2 * 3359 * 3779**2 * 4409 * \
     5039 * 6299 * 6719 * 9181 * 19531 * 22679 * 41161
+b = 632
 
 # Convert a little-endian array to the number
 
@@ -100,7 +105,11 @@ print("P :", hex(prime))
 # print("basis order :", PrintArray(Num2Array(basis_order, 4)))
 
 # PrintArray(Num2Array(d1, 4))
-print("d2 array :", PrintArray(Num2Array(d2, 4)))
+# print("d2 array :", PrintArray(Num2Array(d2, 4)))
 # PrintArray(Num2Array(dA, 4))
 # PrintArray(Num2Array(dA1, 4))
 # PrintArray(Num2Array(dA2, 4))
+
+assert (m1**2 * T1 + m2**2 * T2 == 2**b)
+print("m1 :", PrintArray(Num2Array(m1, 4)))
+print("m2 :", PrintArray(Num2Array(m2, 4)))
